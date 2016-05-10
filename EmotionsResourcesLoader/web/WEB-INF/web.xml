@@ -4,9 +4,17 @@
         <servlet-name>Loader</servlet-name>
         <servlet-class>logic.Loader</servlet-class>
     </servlet>
+    <servlet>
+        <servlet-name>DBManager</servlet-name>
+        <servlet-class>DB.DBManager</servlet-class>
+    </servlet>
     <servlet-mapping>
         <servlet-name>Loader</servlet-name>
         <url-pattern>/Loader</url-pattern>
+    </servlet-mapping>
+    <servlet-mapping>
+        <servlet-name>DBManager</servlet-name>
+        <url-pattern>/DBManager</url-pattern>
     </servlet-mapping>
     <session-config>
         <session-timeout>
