@@ -1,26 +1,27 @@
 $(document).on("click", "#drop", function () {
-    alert("Drop the DB");
-    $.ajax({
-        type: "POST",
-        url: "DBManager",
-        data: {action: "drop"},
-        success: function (data) {
-            alert("Oralab is clear");
-        },
-        error: function (xhr, status, error) {
-            alert(error);
-        }
+
+    alertify.confirm("Are you sure you want to DELETE ALL THE TABLES?", function () {
+        $.ajax({
+            type: "POST",
+            url: "DBManager",
+            data: {action: "drop"},
+            success: function (data) {
+                alertify.success("Oralab DB is clear");
+            },
+            error: function (xhr, status, error) {
+                alert(error);
+            }});
     });
 });
 
 $(document).on("click", "#create", function () {
-    alert("Create the tables");
+    alertify.alert("Creating the tables...");
     $.ajax({
         type: "POST",
         url: "DBManager",
         data: {action: "create"},
         success: function (data) {
-            alert("Oralab is structured");
+            alertify.success("Oralab DB have now sentiments's tables");
         },
         error: function (xhr, status, error) {
             alert(error);
@@ -29,5 +30,15 @@ $(document).on("click", "#create", function () {
 });
 
 $(document).on("click", "#load", function () {
-    alert("ok!");
+    alertify.alert("Loading rex_res process start!");
+    $.ajax({
+        type: "POST",
+        url: "Loader",
+        success: function (data) {
+            alertify.success("Operation complete");
+        },
+        error: function (xhr, status, error) {
+            alert(error);
+        }
+    });
 });
