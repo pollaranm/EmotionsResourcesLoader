@@ -1,7 +1,9 @@
 $(document).on("click", "#drop", function () {
 
-    alertify.confirm("Are you sure you want to DELETE ALL THE TABLES?", function () {
-        $.ajax({
+    alertify.confirm("Are you sure you want to DELETE ALL THE TABLES?", function (e) {
+        if (e) {
+            // user clicked "ok"
+            $.ajax({
             type: "POST",
             url: "DBManager",
             data: {action: "drop"},
@@ -11,6 +13,11 @@ $(document).on("click", "#drop", function () {
             error: function (xhr, status, error) {
                 alert(error);
             }});
+        } else {
+            // user clicked "cancel"
+            alertify.log("Operation aborted");
+        }
+        
     });
 });
 
