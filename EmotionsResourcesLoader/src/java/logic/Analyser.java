@@ -1,29 +1,16 @@
 package logic;
 
-import edu.stanford.nlp.pipeline.StanfordCoreNLP;
-import edu.stanford.nlp.util.CoreMap;
-import edu.stanford.nlp.ling.CoreAnnotations.LemmaAnnotation;
-import edu.stanford.nlp.ling.CoreAnnotations.SentencesAnnotation;
-import edu.stanford.nlp.ling.CoreAnnotations.TokensAnnotation;
-import edu.stanford.nlp.ling.CoreLabel;
-import edu.stanford.nlp.pipeline.Annotation;
 import java.io.BufferedReader;
 import java.io.File;
-import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.FileReader;
 import java.io.IOException;
-import java.io.InputStreamReader;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Paths;
-import java.sql.Connection;
-import java.sql.DriverManager;
-import java.sql.PreparedStatement;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Properties;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.nio.file.Path;
@@ -31,7 +18,8 @@ import javax.servlet.ServletException;
 import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
-
+import org.apache.commons.lang3.StringUtils;
+ 
 /**
  *
  * @author TTm
@@ -56,14 +44,19 @@ public class Analyser extends HttpServlet {
 
         // TO-DO caricate tutte in memoria tutte le varie risorse strane da dover trattare
         // punteggiatura, emoji, slang
-        //loadEmoticons();
-        //loadSlang();
+        loadEmoticons();
+        loadSlang();
 
         // Per ogni cartella fa partire l'elaborazione di un 'sentimento'
         for (File sentimentFolder : sentimentsFoldersList) {
             System.out.println("------ SENTIMENT " + sentimentFolder.getName() + "------");
             elaborateSentiment(sentimentFolder);
         }
+
+        
+        System.out.println("DEBUG - conto '>.<' sui tweet di ANGER (dovrebbero essere 3992)");
+        System.out.println(emoticons.get(">.<").get("anger"));
+        
 
     }
 
@@ -83,9 +76,12 @@ public class Analyser extends HttpServlet {
                 Path path = Paths.get(tweetFile.getAbsolutePath());
                 Charset charset = StandardCharsets.UTF_8;
                 byte[] contentByte = Files.readAllBytes(path);
-                String contentString = new String(contentByte,charset);
-                
-                //content = content.replaceAll("USERNAME", "");
+                String contentString = new String(contentByte, charset);
+
+                // Provare a trattare le emoji a livello di codifica HEX ??
+                contentString = removeTwitterWords(contentString);
+                contentString = processEmoticons(contentString, sentimentFolder.getName());
+
                 Files.write(path, contentString.getBytes(charset));
             } catch (IOException ex) {
                 Logger.getLogger(Analyser.class.getName()).log(Level.SEVERE, null, ex);
@@ -181,8 +177,53 @@ public class Analyser extends HttpServlet {
     public String getServletInfo() {
         return "Short description";
     }// </editor-fold>
-}
 
+    /**
+     * Analizza il testo passato come input e ne rimuove le parole chiave
+     * tipiche di un tweet 'USERNAME' e 'URL'.
+     *
+     * @param text Testo da analizzare
+     * @return Testo ripulito delle parole 'USERNAME' e 'URL'
+     */
+    private String removeTwitterWords(String text) {
+        text = text.replace("USERNAME", "");
+        text = text.replace("URL", "");
+        return text;
+    }
+
+    /**
+     * Scandisce l'intero testo passato come paramentro alla ricerca delle
+     * diverse emoticon presenti nell'hashmap globale 'emoticons'. Ogni emoticon
+     * trovata verrà cancellata dal testo finale ma il conteggio totale delle
+     * occorrenze per sentimento verrà salvato sempre nella relatica hashmap.
+     *
+     * @param text Testo da analizzare
+     * @param sentiment Sentimento associato al testo analizzato
+     * @return Il testo ripulito delle emoticons
+     */
+    private String processEmoticons(String text, String sentiment) {
+        for (Map.Entry emoticon : emoticons.entrySet()) {
+            Integer tempCont = StringUtils.countMatches(text, (String) emoticon.getKey());
+            text = text.replace((String) emoticon.getKey(), "");
+
+            // metodo rozzo, non mi piace
+//            // Cicla finchè il risultato della sostituzione di un emoticon non è
+//            // il medesimo con una sostituzione nulla
+//            while(!text.replaceFirst((String)emoticon.getKey(),"").equals(text)){
+//                text= text.replaceFirst((String)emoticon.getKey(),"");
+//                tempCont++;
+//            }
+            
+            
+            // salva il conteggio nella hash, nel giusto ramo della 
+            // hash dato dall'emoticon e dal sentimento
+            HashMap<String, Integer> tempHash = emoticons.get((String) emoticon.getKey());
+            tempHash.put(sentiment, tempCont);
+            emoticons.put((String) emoticon.getKey(), tempHash);
+        }
+        return text;
+    }
+}
 
 // Trattamento stop-word
 //   Properties props = new Properties();
