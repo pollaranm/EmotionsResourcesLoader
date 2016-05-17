@@ -13,6 +13,7 @@ import java.io.FileInputStream;
 import java.io.FileReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.net.URL;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
@@ -20,6 +21,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Properties;
 import javax.servlet.ServletException;
+import static javax.servlet.SessionTrackingMode.URL;
 import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
@@ -32,13 +34,10 @@ public class Loader extends HttpServlet {
 
     File dir = new File("C:/Dropbox/lex_res_temp");
     File[] sentimentsFoldersList = dir.listFiles();
-    // HashMap temporanea per ogni sentimento che controllerà la presenza di una 
-    // parola in più risorse e ne terrà il conteggio
-    HashMap<String, Integer> hash;
 
     protected void processRequest(HttpServletRequest request, HttpServletResponse response)
             throws ServletException, IOException {
-
+        
         // Per ogni cartella fa partire l'elaborazione di un 'sentimento'
         for (File sentimentFolder : sentimentsFoldersList) {
             System.out.println("------ FOLDER " + sentimentFolder.getName() + "------");
@@ -59,12 +58,17 @@ public class Loader extends HttpServlet {
         File[] sentimentResList = sentiment.listFiles();
         int numRes = sentimentResList.length;
 
-        // Reinizializzo ad ogni giro (sentimento) l'hash di supporto
-        hash = new HashMap<String, Integer>();
+        // HashMap temporanea per ogni sentimento che controllerà la presenza di una 
+        // parola in più risorse e ne terrà il conteggio
+        HashMap<String, Integer> hashSentiment = new HashMap<String, Integer>();
+        
+        // HashMap di supporto per il conteggio nei signoli file
+        HashMap<String, Integer> hashFile;
 
         BufferedReader br = null;
         // mi trovo dentro la cartella di un sentimento, ciclo per ogni risorsa
         for (File sentRes : sentimentResList) {
+            hashFile = new HashMap<String, Integer>();
             System.out.println("###### Open res: " + sentRes.getName() + " ######");
             try {
                 String sCurrentLine;
@@ -77,15 +81,7 @@ public class Loader extends HttpServlet {
                     String elaboratedWord = preProcessingWord(sCurrentLine);
 
                     if (!elaboratedWord.equals("")) {
-                        if (hash.get(elaboratedWord) != null) {
-                            // se la parola è già stata inserita
-                            hash.put(elaboratedWord, hash.get(elaboratedWord) + 1);
-                            //System.out.println("REPEATED: " + elaboratedWord);
-                        } else {
-                            // se la parola non è ancora stata inserita
-                            hash.put(elaboratedWord, 1);
-                            //System.out.println("New: " + elaboratedWord);
-                        }
+                        hashFile.putIfAbsent(elaboratedWord, 1);
                     }
                 }
             } catch (IOException e) {
@@ -100,8 +96,18 @@ public class Loader extends HttpServlet {
                 }
             }
             System.out.println("###### Close res: " + sentRes.getName() + " ######");
+
+            // Salvo le parole trovate nel singolo file all'interno dell'hash 
+            // globale per quel sentimento
+            for (Map.Entry word : hashFile.entrySet()) {
+                if (hashSentiment.containsKey((String) word.getKey())) {
+                    hashSentiment.replace((String) word.getKey(), hashSentiment.get((String) word.getKey()) + 1);
+                } else {
+                    hashSentiment.put((String) word.getKey(), 1);
+                }
+            }
         }
-        storeInDB(sentiment.getName(), numRes, hash);
+        storeInDB(sentiment.getName(), numRes, hashSentiment);
     }
 
     private void storeInDB(String sentimentName, int numRes, HashMap<String, Integer> hash) {
@@ -121,16 +127,16 @@ public class Loader extends HttpServlet {
             String query_insert_stm
                     = "INSERT INTO " + sentimentName + " (WORD, COUNT_RES, PERC_RES, COUNT_TWEET) VALUES (?,?,?,?)";
             PreparedStatement pstmt = conn.prepareStatement(query_insert_stm);
-            
-            for(Map.Entry word : hash.entrySet()) {
-                Float perc_res = new Float((int)word.getValue())/numRes*100;
-                pstmt.setString(1, (String)word.getKey());
-                pstmt.setInt(2, (int)word.getValue());
+
+            for (Map.Entry word : hash.entrySet()) {
+                Float perc_res = new Float((int) word.getValue()) / numRes * 100;
+                pstmt.setString(1, (String) word.getKey());
+                pstmt.setInt(2, (int) word.getValue());
                 pstmt.setFloat(3, perc_res);
                 pstmt.setInt(4, 0);
                 pstmt.addBatch();
             }
-            
+
             pstmt.executeBatch();
             conn.commit();
             pstmt.close();
@@ -173,8 +179,8 @@ public class Loader extends HttpServlet {
         }
         return finalS;
     }
-    
-        private void RAW_counter(HashMap<String, Integer> hash) {
+
+    private void RAW_counter(HashMap<String, Integer> hash) {
         File dir = new File("C:/Dropbox/tweet_temp");
         File[] sentimentsFoldersList = dir.listFiles();
         BufferedReader br = null;

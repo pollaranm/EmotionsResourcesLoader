@@ -14,12 +14,13 @@ import java.util.Map;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.nio.file.Path;
+import java.util.LinkedList;
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import org.apache.commons.lang3.StringUtils;
- 
+
 /**
  *
  * @author TTm
@@ -29,8 +30,6 @@ public class Analyser extends HttpServlet {
     File dirTweet = new File("C:/Dropbox/tweet_temp");
     File[] sentimentsFoldersList = dirTweet.listFiles();
 
-    int sentimentIndex = 0;
-
     // HashMap dove verranno caricate le varie emoticon. Per ogniuna di queste è presente una hash
     // interna che conterrà il conteggio delle occorrenze associato ad ogni sentimento
     HashMap<String, HashMap<String, Integer>> emoticons = new HashMap<>();
@@ -38,6 +37,12 @@ public class Analyser extends HttpServlet {
     // HashMap contenente gli slang che andranno ricercati nei tweet e sostituiti con la
     // loro forma estesa
     HashMap<String, String> slang = new HashMap<>();
+    
+    // Lista delle stop-word che andranno eliminate dai tweet
+    LinkedList<String> stopword = new LinkedList<String>();
+
+    // Lista contenente i segni di punteggiatura che andranno eliminati dai file 
+    LinkedList<String> punctuation = new LinkedList<String>();
 
     protected void processRequest(HttpServletRequest request, HttpServletResponse response)
             throws ServletException, IOException {
@@ -46,17 +51,14 @@ public class Analyser extends HttpServlet {
         // punteggiatura, emoji, slang
         loadEmoticons();
         loadSlang();
+        loadStopwords();
+        //loadPunctuation();
 
         // Per ogni cartella fa partire l'elaborazione di un 'sentimento'
         for (File sentimentFolder : sentimentsFoldersList) {
             System.out.println("------ SENTIMENT " + sentimentFolder.getName() + "------");
             elaborateSentiment(sentimentFolder);
         }
-
-        
-        System.out.println("DEBUG - conto '>.<' sui tweet di ANGER (dovrebbero essere 3992)");
-        System.out.println(emoticons.get(">.<").get("anger"));
-        
 
     }
 
@@ -72,8 +74,11 @@ public class Analyser extends HttpServlet {
         File[] sentimentTweetList = sentimentFolder.listFiles();
         // mi trovo dentro la cartella di un sentimento, ciclo per ogni raccolta di tweet
         for (File tweetFile : sentimentTweetList) {
+            System.out.println("###### Open res: " + tweetFile.getName() + " ######");
             try {
                 Path path = Paths.get(tweetFile.getAbsolutePath());
+                Path destination = Paths.get(sentimentFolder + File.separator + sentimentFolder.getName() + ".txt");
+
                 Charset charset = StandardCharsets.UTF_8;
                 byte[] contentByte = Files.readAllBytes(path);
                 String contentString = new String(contentByte, charset);
@@ -81,11 +86,14 @@ public class Analyser extends HttpServlet {
                 // Provare a trattare le emoji a livello di codifica HEX ??
                 contentString = removeTwitterWords(contentString);
                 contentString = processEmoticons(contentString, sentimentFolder.getName());
+                contentString = processSlangWords(contentString);
+                contentString = processStopwords(contentString);
 
-                Files.write(path, contentString.getBytes(charset));
+                Files.write(destination, contentString.getBytes(charset));
             } catch (IOException ex) {
                 Logger.getLogger(Analyser.class.getName()).log(Level.SEVERE, null, ex);
             }
+            System.out.println("###### Close res: " + tweetFile.getName() + " ######");
         }
     }
 
@@ -97,12 +105,13 @@ public class Analyser extends HttpServlet {
     private void loadEmoticons() {
         try {
             // Punta al file contenente l'elenco delle emoticons
-            File emoticonsFile = new File("C:/Dropbox/lex_util/emoticon.txt");
+            // File emoticonsFile = new File("C:/Dropbox/lex_util/emoticon_SHORT.txt");
+            File emoticonsFile = new File("C:/Dropbox/lex_util/emoticon_LONG.txt");
             BufferedReader br = new BufferedReader(new FileReader(emoticonsFile.getAbsolutePath()));
             String sCurrentLine;
             // Analizza ogni riga del file l'aggiunge alla hash globale
             while ((sCurrentLine = br.readLine()) != null) {
-                emoticons.put(sCurrentLine, new HashMap<String, Integer>());
+                emoticons.putIfAbsent(sCurrentLine, new HashMap<String, Integer>());
                 //System.out.println("DEBUG - " + sCurrentLine);
             }
 
@@ -111,6 +120,7 @@ public class Analyser extends HttpServlet {
         } catch (IOException ex) {
             Logger.getLogger(Analyser.class.getName()).log(Level.SEVERE, null, ex);
         }
+        System.out.println("Emoticons READY!");
     }
 
     /**
@@ -126,7 +136,7 @@ public class Analyser extends HttpServlet {
             // Analizza ogni riga del file l'aggiunge alla hash globale
             while ((sCurrentLine = br.readLine()) != null) {
                 String[] parts = sCurrentLine.split(":");
-                slang.put(parts[0], parts[1]);
+                slang.put(" " + parts[0] + " ", " " + parts[1] + " ");
                 //System.out.println("DEBUG - " + parts[0] + " : " + parts[1]);
 
             }
@@ -137,6 +147,64 @@ public class Analyser extends HttpServlet {
             Logger.getLogger(Analyser.class
                     .getName()).log(Level.SEVERE, null, ex);
         }
+        System.out.println("Slang READY!");
+    }
+
+    /**
+     * Analizza il testo passato come input e ne rimuove le parole chiave
+     * tipiche di un tweet 'USERNAME' e 'URL'.
+     *
+     * @param text Testo da analizzare
+     * @return Testo ripulito delle parole 'USERNAME' e 'URL'
+     */
+    private String removeTwitterWords(String text) {
+        text = text.replace("USERNAME", "");
+        text = text.replace("URL", "");
+        System.out.println("TwitterWords REMOVED");
+        return text;
+    }
+
+    /**
+     * Scandisce l'intero testo passato come paramentro alla ricerca delle
+     * diverse emoticon presenti nell'hashmap globale 'emoticons'. Ogni emoticon
+     * trovata verrà cancellata dal testo finale ma il conteggio totale delle
+     * occorrenze per sentimento verrà salvato sempre nella relatica hashmap.
+     *
+     * @param text Testo da analizzare
+     * @param sentiment Sentimento associato al testo analizzato
+     * @return Il testo ripulito delle emoticons
+     */
+    private String processEmoticons(String text, String sentiment) {
+        for (Map.Entry emoticon : emoticons.entrySet()) {
+            Integer tempCont = StringUtils.countMatches(text, (String) emoticon.getKey());
+            HashMap<String, Integer> tempHash = emoticons.get((String) emoticon.getKey());
+            tempHash.put(sentiment, tempCont);
+            emoticons.put((String) emoticon.getKey(), tempHash);
+        }
+        for (Map.Entry emoticon : emoticons.entrySet()) {
+            text = text.replace((String) emoticon.getKey(), "");
+        }
+        System.out.println("-" + sentiment + "- Emoticons PROCESSED");
+        return text;
+    }
+
+    /**
+     * Sostituisce tutte le forme abbreviate e/o slang presenti nel testo con la
+     * loro relativa forma per esteso. Si appoggia alla precendente funzione di
+     * caricamento da file di questi slang 'loadSlang()'.
+     *
+     * @param text Testo da elaborare
+     * @return Il testo passato in input arricchito con le forme estese degli
+     * slang
+     */
+    private String processSlangWords(String text) {
+        for (Map.Entry temp : slang.entrySet()) {
+            String slangForm = (String) temp.getKey();
+            String extendedForm = (String) temp.getValue();
+            text = text.replace(slangForm, extendedForm);
+        }
+        System.out.println("Slang PROCESSED");
+        return text;
     }
 
     // <editor-fold defaultstate="collapsed" desc="HttpServlet methods. Click on the + sign on the left to edit the code.">
@@ -178,49 +246,34 @@ public class Analyser extends HttpServlet {
         return "Short description";
     }// </editor-fold>
 
-    /**
-     * Analizza il testo passato come input e ne rimuove le parole chiave
-     * tipiche di un tweet 'USERNAME' e 'URL'.
-     *
-     * @param text Testo da analizzare
-     * @return Testo ripulito delle parole 'USERNAME' e 'URL'
-     */
-    private String removeTwitterWords(String text) {
-        text = text.replace("USERNAME", "");
-        text = text.replace("URL", "");
-        return text;
+    private void loadPunctuation() {
+        throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
     }
 
-    /**
-     * Scandisce l'intero testo passato come paramentro alla ricerca delle
-     * diverse emoticon presenti nell'hashmap globale 'emoticons'. Ogni emoticon
-     * trovata verrà cancellata dal testo finale ma il conteggio totale delle
-     * occorrenze per sentimento verrà salvato sempre nella relatica hashmap.
-     *
-     * @param text Testo da analizzare
-     * @param sentiment Sentimento associato al testo analizzato
-     * @return Il testo ripulito delle emoticons
-     */
-    private String processEmoticons(String text, String sentiment) {
-        for (Map.Entry emoticon : emoticons.entrySet()) {
-            Integer tempCont = StringUtils.countMatches(text, (String) emoticon.getKey());
-            text = text.replace((String) emoticon.getKey(), "");
-
-            // metodo rozzo, non mi piace
-//            // Cicla finchè il risultato della sostituzione di un emoticon non è
-//            // il medesimo con una sostituzione nulla
-//            while(!text.replaceFirst((String)emoticon.getKey(),"").equals(text)){
-//                text= text.replaceFirst((String)emoticon.getKey(),"");
-//                tempCont++;
-//            }
-            
-            
-            // salva il conteggio nella hash, nel giusto ramo della 
-            // hash dato dall'emoticon e dal sentimento
-            HashMap<String, Integer> tempHash = emoticons.get((String) emoticon.getKey());
-            tempHash.put(sentiment, tempCont);
-            emoticons.put((String) emoticon.getKey(), tempHash);
+    private void loadStopwords() {
+        try {
+            // Punta al file contenente l'elenco delle stopword
+            // File stopwordFile = new File("C:/Dropbox/lex_util/stopword_SHORT.txt");
+            File stopwordFile = new File("C:/Dropbox/lex_util/stopword_LONG.txt");
+            BufferedReader br = new BufferedReader(new FileReader(stopwordFile.getAbsolutePath()));
+            String sCurrentLine;
+            // Analizza ogni riga del file l'aggiunge alla hash globale
+            while ((sCurrentLine = br.readLine()) != null) {
+                stopword.add(" " + sCurrentLine + " ");
+            }
+        } catch (FileNotFoundException ex) {
+            Logger.getLogger(Analyser.class.getName()).log(Level.SEVERE, null, ex);
+        } catch (IOException ex) {
+            Logger.getLogger(Analyser.class.getName()).log(Level.SEVERE, null, ex);
         }
+        System.out.println("Stopword READY!");
+    }
+
+    private String processStopwords(String text) {
+        for (String temp : stopword) {
+            text = text.replace(temp, " ");
+        }
+        System.out.println("Stopword REMOVED");
         return text;
     }
 }

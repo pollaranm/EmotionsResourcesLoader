@@ -1,5 +1,4 @@
 $(document).on("click", "#drop", function () {
-
     alertify.confirm("Are you sure you want to DELETE ALL THE TABLES?", function (e) {
         if (e) {
             // user clicked "ok"
@@ -17,7 +16,6 @@ $(document).on("click", "#drop", function () {
             // user clicked "cancel"
             alertify.log("Operation aborted");
         }
-        
     });
 });
 
@@ -46,6 +44,26 @@ $(document).on("click", "#load", function () {
         },
         error: function (xhr, status, error) {
             alert(error);
+        }
+    });
+});
+
+$(document).on("click", "#analyze", function () {
+    alertify.confirm("Are you sure you want to START THE ANALYSIS of Tweets?", function (e) {
+        if (e) {
+            // user clicked "ok"
+            $.ajax({
+            type: "POST",
+            url: "Analyser",
+            success: function (data) {
+                alertify.success("Analysis complete!");
+            },
+            error: function (xhr, status, error) {
+                alert(error);
+            }});
+        } else {
+            // user clicked "cancel"
+            alertify.log("Operation aborted");
         }
     });
 });

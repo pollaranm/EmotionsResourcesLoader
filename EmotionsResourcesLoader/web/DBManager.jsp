@@ -27,5 +27,6 @@
         <button id="drop">Drop ALL Database</button>
         <button id="create">Create structure</button>
         <button id="load">Load lexical resources</button>
+        <button id="analyze">Analyze Tweet</button>
     </body>
 </html>
