@@ -37,7 +37,7 @@ public class Loader extends HttpServlet {
 
     protected void processRequest(HttpServletRequest request, HttpServletResponse response)
             throws ServletException, IOException {
-        
+
         // Per ogni cartella fa partire l'elaborazione di un 'sentimento'
         for (File sentimentFolder : sentimentsFoldersList) {
             System.out.println("------ FOLDER " + sentimentFolder.getName() + "------");
@@ -58,11 +58,15 @@ public class Loader extends HttpServlet {
         File[] sentimentResList = sentiment.listFiles();
         int numRes = sentimentResList.length;
 
-        // HashMap temporanea per ogni sentimento che controllerà la presenza di una 
-        // parola in più risorse e ne terrà il conteggio
+        /**
+         * HashMap temporanea per ogni sentimento che controllerà la presenza di
+         * una parola in più risorse e ne terrà il conteggio
+         */
         HashMap<String, Integer> hashSentiment = new HashMap<String, Integer>();
-        
-        // HashMap di supporto per il conteggio nei signoli file
+
+        /**
+         * HashMap di supporto per il conteggio nei signoli file
+         */
         HashMap<String, Integer> hashFile;
 
         BufferedReader br = null;
