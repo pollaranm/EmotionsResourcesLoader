@@ -30,6 +30,11 @@ import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.text.StrBuilder;
+import org.json.*;
+import com.vdurmont.emoji.Emoji;
+import com.vdurmont.emoji.EmojiManager;
+import com.vdurmont.emoji.EmojiParser;
+import java.util.Collection;
 
 /**
  *
@@ -62,6 +67,13 @@ public class Analyser extends HttpServlet {
     HashMap<String, HashMap<String, Integer>> hashtags = new HashMap<>();
 
     /**
+     * HashMap dove verranno caricati i vari emoji. Per ogniuno di questi è
+     * presente una hash interna che conterrà il conteggio delle occorrenze
+     * associato ad ogni sentimento
+     */
+    HashMap<String, HashMap<String, Integer>> emoji = new HashMap<>();
+
+    /**
      * HashMap contenente gli slang che andranno ricercati nei tweet e
      * sostituiti con la loro forma estesa
      */
@@ -86,6 +98,7 @@ public class Analyser extends HttpServlet {
         loadSlangs();
         loadStopwords();
         loadPunctuation();
+        loadEmoji();
 
         // Per ogni cartella fa partire l'elaborazione di un 'sentimento'
         for (File sentimentFolder : sentimentsFoldersList) {
@@ -111,9 +124,10 @@ public class Analyser extends HttpServlet {
                 contentString = removeTwitterWords(contentString);
                 contentString = processEmoticons(contentString, sentimentFolder.getName());
                 contentString = processSlangWords(contentString);
-                contentString = processStopwords(contentString);
                 contentString = processHashtags(contentString, sentimentFolder.getName());
+                contentString = processStopwords(contentString);
                 contentString = removePunctuation(contentString);
+                contentString = processEmoji(contentString, sentimentFolder.getName());
 
                 //contentString = innerElaboration(contentString, sentimentFolder.getName());
                 Files.write(destination, contentString.getBytes(charset));
@@ -141,8 +155,6 @@ public class Analyser extends HttpServlet {
             // Analizza ogni riga del file l'aggiunge alla hash globale
             while ((sCurrentLine = br.readLine()) != null) {
                 emoticons.putIfAbsent(sCurrentLine, new HashMap<String, Integer>());
-                //System.out.println("DEBUG - " + sCurrentLine);
-
             }
         } catch (FileNotFoundException ex) {
             Logger.getLogger(Analyser.class
@@ -194,7 +206,6 @@ public class Analyser extends HttpServlet {
             // Analizza ogni riga del file l'aggiunge alla lista
             while ((sCurrentLine = br.readLine()) != null) {
                 punctuation.add(sCurrentLine);
-                System.out.println(sCurrentLine);
             }
         } catch (FileNotFoundException ex) {
             Logger.getLogger(Analyser.class
@@ -219,7 +230,7 @@ public class Analyser extends HttpServlet {
             String sCurrentLine;
             // Analizza ogni riga del file l'aggiunge alla hash globale
             while ((sCurrentLine = br.readLine()) != null) {
-                stopwords.add(" " + sCurrentLine + " ");
+                stopwords.add(sCurrentLine);
 
             }
         } catch (FileNotFoundException ex) {
@@ -233,6 +244,19 @@ public class Analyser extends HttpServlet {
     }
 
     /**
+     * Recupera tutte le possibili emoji presenti nella libreria e le carica in
+     * memoria, predisponendo già le hashmap interne per il conteggio delle
+     * occorrenze.
+     */
+    private void loadEmoji() {
+        Collection<Emoji> allEmoji = EmojiManager.getAll();
+        for (Emoji em : allEmoji) {
+            emoji.putIfAbsent(":" + em.getAliases().get(0) + ":", new HashMap<String, Integer>());
+        }
+        System.out.println("Emoji READY!");
+    }
+
+    /**
      * Analizza il testo passato come input e ne rimuove le parole chiave
      * tipiche di un tweet 'USERNAME' e 'URL'.
      *
@@ -240,9 +264,10 @@ public class Analyser extends HttpServlet {
      * @return Testo ripulito delle parole 'USERNAME' e 'URL'
      */
     private String removeTwitterWords(String text) {
+        System.out.print("TwitterWords ... ");
         text = text.replace("USERNAME", "");
         text = text.replace("URL", "");
-        System.out.println("TwitterWords REMOVED");
+        System.out.print("REMOVED");
         return text;
     }
 
@@ -257,6 +282,7 @@ public class Analyser extends HttpServlet {
      * @return Il testo ripulito delle emoticons
      */
     private String processEmoticons(String text, String sentiment) {
+        System.out.print("Emoticons ... ");
         for (Map.Entry emoticon : emoticons.entrySet()) {
             Integer tempCont = StringUtils.countMatches(text, (String) emoticon.getKey());
             HashMap<String, Integer> tempHash = emoticons.get((String) emoticon.getKey());
@@ -266,7 +292,7 @@ public class Analyser extends HttpServlet {
         for (Map.Entry emoticon : emoticons.entrySet()) {
             text = text.replace((String) emoticon.getKey(), "");
         }
-        System.out.println("-" + sentiment + "- Emoticons PROCESSED");
+        System.out.print("PROCESSED");
         return text;
     }
 
@@ -280,12 +306,15 @@ public class Analyser extends HttpServlet {
      * slang
      */
     private String processSlangWords(String text) {
+        System.out.print("Slang ... ");
+        text = text.replace(System.lineSeparator(), " :-EOL-: ");
         for (Map.Entry temp : slangs.entrySet()) {
             String slangForm = (String) temp.getKey();
             String extendedForm = (String) temp.getValue();
             text = text.replace(slangForm, extendedForm);
         }
-        System.out.println("Slang PROCESSED");
+        text = text.replace(" :-EOL-: ", System.lineSeparator());
+        System.out.print("PROCESSED");
         return text;
     }
 
@@ -297,22 +326,44 @@ public class Analyser extends HttpServlet {
      * @return Testo ripulito dalle stopwords presenti in elenco
      */
     private String processStopwords(String text) {
-        for (String temp : stopwords) {
-            text = text.replace(temp, " ");
+        System.out.print("Stopwords ... ");
+//        text = text.replace(System.lineSeparator(), " :-EOL-: ");
+//        for (String temp : stopwords) {
+//            text = text.replace(temp, " ");
+//        }
+//        text = text.replace(" :-EOL-: ", System.lineSeparator());
+        StrBuilder elaboratedText = new StrBuilder();
+        try {
+            BufferedReader br = new BufferedReader(new StringReader(text));
+            String sCurrentLine;
+            while ((sCurrentLine = br.readLine()) != null) {
+                String[] splittedText = sCurrentLine.split(" ");
+                for (String token : splittedText) {
+                    if ((token.length() > 2) && !stopwords.contains(token)) {
+                        elaboratedText.append(" " + token);
+                    }
+                }
+                elaboratedText.appendNewLine();
+            }
+        } catch (IOException ex) {
+            Logger.getLogger(Analyser.class.getName()).log(Level.SEVERE, null, ex);
         }
-        System.out.println("Stopword REMOVED");
-        return text;
+        System.out.print("REMOVED");
+        return elaboratedText.toString();
     }
 
     /**
-     * Procedura di elaborazione degi hashtag presenti nel testo passato come parametro.
-     * Durante la scansione vengono salvati e conteggiati nella hashmap 'hashtags',
-     * suddivisa a sua volta in una sottomappa per sentimento. 
+     * Procedura di elaborazione degi hashtag presenti nel testo passato come
+     * parametro. Durante la scansione vengono salvati e conteggiati nella
+     * hashmap 'hashtags', suddivisa a sua volta in una sottomappa per
+     * sentimento.
+     *
      * @param text Il testo da analizzare
-     * @param sentiment Il sentimento associato al testo analizzato 
+     * @param sentiment Il sentimento associato al testo analizzato
      * @return Il testo privo degli hashtag
      */
     private String processHashtags(String text, String sentiment) {
+        System.out.print("Hashtag ... ");
         StrBuilder elaboratedText = new StrBuilder();
         try {
             BufferedReader br = new BufferedReader(new StringReader(text));
@@ -332,23 +383,17 @@ public class Analyser extends HttpServlet {
         } catch (IOException ex) {
             Logger.getLogger(Analyser.class.getName()).log(Level.SEVERE, null, ex);
         }
+        System.out.print("PROCESSED");
         return elaboratedText.toString();
     }
 
     /**
-     * Controlla se la parola potrebbe essere un hashtag, valutando il primo carattere.
-     * @param word Parola da valutare
-     * @return <code>TRUE</code> se la parola inizia con un cancelletto, <code>FALSE</code> altrimenti
-     */
-    private boolean isHashTag(String word) {
-        return word.substring(0, 1).equals("#") ? true : false;
-    }
-
-    /**
-     * Procedura di salvataggio e conteggio delle occorrenze degli hashtag. Viene
-     * invocato quando nella procedura di analisi degli hashtag, si riscontra un'occorrenza: 
-     * a questo punto se è già presente si aggiorna il conteggio, altrimenti si inizializza.
-     * Il conteggio viene fatto considerando in quale 'sentimento' viene trovato l'hashtag.
+     * Procedura di salvataggio e conteggio delle occorrenze degli hashtag.
+     * Viene invocato quando nella procedura di analisi degli hashtag, si
+     * riscontra un'occorrenza: a questo punto se è già presente si aggiorna il
+     * conteggio, altrimenti si inizializza. Il conteggio viene fatto
+     * considerando in quale 'sentimento' viene trovato l'hashtag.
+     *
      * @param word Hashtag che si vuole valutare
      * @param sentiment Sentimento relativo all'occorrenza da registrare
      */
@@ -372,21 +417,91 @@ public class Analyser extends HttpServlet {
             first.put(sentiment, 1);
             hashtags.put(word, first);
         }
-        System.out.println("Hashtag PROCESSED");
     }
 
     /**
-     * Procedura di rimozione di simboli indesiderati dal testo. Si appoggia alla 
-     * funzione 'loadPunctuation()' per la definizione di quali simboli eliminare.
+     * Controlla se la parola potrebbe essere un hashtag, valutando il primo
+     * carattere.
+     *
+     * @param word Parola da valutare
+     * @return <code>TRUE</code> se la parola inizia con un cancelletto,
+     * <code>FALSE</code> altrimenti
+     */
+    private boolean isHashTag(String word) {
+        return word.substring(0, 1).equals("#") ? true : false;
+    }
+
+    /**
+     * Procedura di rimozione di simboli indesiderati dal testo. Si appoggia
+     * alla funzione 'loadPunctuation()' per la definizione di quali simboli
+     * eliminare.
+     *
      * @param text Testo da ripulire
      * @return Testo ripulito dai simboli selezionati
      */
     private String removePunctuation(String text) {
+        System.out.print("Punctuation ... ");
         for (String symbol : punctuation) {
             text = text.replace(symbol, " ");
         }
-        System.out.println("Punctuation REMOVED");
+        System.out.print("REMOVED");
         return text;
+    }
+
+    /**
+     * Procedura di elaborazione degli emoji presenti nel testo passato come
+     * parametro. Durante la scansione vengono salvati e conteggiati nella
+     * hashmap 'emoji', suddivisa a sua volta in una sottomappa per sentimento.
+     *
+     * @param text Il testo da analizzare
+     * @param sentiment Il sentimento associato al testo analizzato
+     * @return Il testo privo degli emoji riconosciuti
+     */
+    private String processEmoji(String text, String sentiment) {
+        System.out.print("Emoji ... ");
+        StrBuilder elaboratedText = new StrBuilder();
+        try {
+            BufferedReader br = new BufferedReader(new StringReader(text));
+            String sCurrentLine;
+            while ((sCurrentLine = br.readLine()) != null) {
+                String[] splittedText = sCurrentLine.split(" ");
+                for (String token : splittedText) {
+                    if (EmojiManager.isEmoji(token)) {
+                        elaborateEmoji(token, sentiment);
+                    } else {
+                        elaboratedText.append(" " + token);
+                    }
+                }
+                elaboratedText.appendNewLine();
+            }
+        } catch (IOException ex) {
+            Logger.getLogger(Analyser.class.getName()).log(Level.SEVERE, null, ex);
+        }
+        System.out.print("PROCESSED");
+        return elaboratedText.toString();
+    }
+
+    /**
+     * Procedura di elaborazione del singolo emoji. Ad ogni occorrenza
+     * riscontrata aumenta il conteggio nel relativo sentimento.
+     *
+     * @param word Codifica sotto forma di stringa dell'emoji
+     * @param sentiment Sentimento del tweet dove è stato riscontrato
+     */
+    private void elaborateEmoji(String word, String sentiment) {
+        word = EmojiParser.parseToAliases(word);
+        //System.out.println(word);
+        if (emoji.get(word).containsKey(sentiment)) {
+            // se non è la prima volta che lo osservo in questo sentimento, aggiorno
+            HashMap<String, Integer> old = emoji.get(word);
+            old.replace(sentiment, old.get(sentiment) + 1);
+            emoji.replace(word, old);
+        } else {
+            // se è la prima volta che lo osservo in questo sentimento, lo creo
+            HashMap<String, Integer> temp = emoji.get(word);
+            temp.put(sentiment, 1);
+            emoji.put(word, temp);
+        }
     }
 
     // <editor-fold defaultstate="collapsed" desc="HttpServlet methods. Click on the + sign on the left to edit the code.">

@@ -16,6 +16,7 @@
         <script src="js_lib/alertify.min.js"></script>
         <script src="js/DBManager.js"></script>
 
+        <link rel="icon" type="image/ico" href="img/favicon.ico"/>
         <link rel="stylesheet" href="css/bootstrap.css" />
         <link rel="stylesheet" href="css/bootstrap-theme.css"/>
         <link rel="stylesheet" href="css/alertify.core.css" />
