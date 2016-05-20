@@ -1,11 +1,12 @@
 package logic;
 
-import edu.stanford.nlp.ling.CoreAnnotations;
-import edu.stanford.nlp.ling.CoreAnnotations.TextAnnotation;
-import edu.stanford.nlp.ling.CoreLabel;
-import edu.stanford.nlp.pipeline.Annotation;
 import edu.stanford.nlp.pipeline.StanfordCoreNLP;
 import edu.stanford.nlp.util.CoreMap;
+import edu.stanford.nlp.ling.CoreAnnotations.LemmaAnnotation;
+import edu.stanford.nlp.ling.CoreAnnotations.SentencesAnnotation;
+import edu.stanford.nlp.ling.CoreAnnotations.TokensAnnotation;
+import edu.stanford.nlp.ling.CoreLabel;
+import edu.stanford.nlp.pipeline.Annotation;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileNotFoundException;
@@ -34,6 +35,12 @@ import org.json.*;
 import com.vdurmont.emoji.Emoji;
 import com.vdurmont.emoji.EmojiManager;
 import com.vdurmont.emoji.EmojiParser;
+import edu.stanford.nlp.ling.CoreAnnotations;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Statement;
 import java.util.Collection;
 
 /**
@@ -67,6 +74,18 @@ public class Analyser extends HttpServlet {
     HashMap<String, HashMap<String, Integer>> hashtags = new HashMap<>();
 
     /**
+     * HashMap di supporto per il conteggio delle occorrenze delle risorse
+     * lessicali riscontrate nell'analisi dei tweet.
+     */
+    HashMap<String, HashMap<String, Integer>> oldWords = new HashMap<>();
+
+    /**
+     * HashMap di supporto per il salvataggio e conteggio delle nuove risorse
+     * lessicali rinvenute durante l'analisi dei tweet.
+     */
+    HashMap<String, HashMap<String, Integer>> newWords = new HashMap<>();
+
+    /**
      * HashMap dove verranno caricati i vari emoji. Per ogniuno di questi è
      * presente una hash interna che conterrà il conteggio delle occorrenze
      * associato ad ogni sentimento
@@ -89,11 +108,20 @@ public class Analyser extends HttpServlet {
      */
     LinkedList<String> punctuation = new LinkedList<String>();
 
+    // ###################################################
+    // ###             DATABASE DATA                   ###
+    // ###################################################
+    String myDriver = "oracle.jdbc.driver.OracleDriver";
+    String myUrl = "jdbc:oracle:thin:@localhost:1521:oralab";
+    String myUser = "USERTEST";
+    String myPass = "app";
+//    String myUrl = "jdbc:oracle:thin:@laboracle.educ.di.unito.it:1521:oralab";
+//    String myUser = "sp138279";
+//    String myPass = "testtest";
+
     protected void processRequest(HttpServletRequest request, HttpServletResponse response)
             throws ServletException, IOException {
 
-        // TO-DO caricate tutte in memoria tutte le varie risorse strane da dover trattare
-        // punteggiatura, emoji, slang
         loadEmoticons();
         loadSlangs();
         loadStopwords();
@@ -105,11 +133,13 @@ public class Analyser extends HttpServlet {
             System.out.println("------ SENTIMENT " + sentimentFolder.getName() + "------");
             elaborateSentiment(sentimentFolder);
         }
-
     }
 
     private void elaborateSentiment(File sentimentFolder) {
         File[] sentimentTweetList = sentimentFolder.listFiles();
+        oldWords.put(sentimentFolder.getName(), new HashMap<>());
+        newWords.put(sentimentFolder.getName(), new HashMap<>());
+
         // mi trovo dentro la cartella di un sentimento, ciclo per ogni raccolta di tweet
         for (File tweetFile : sentimentTweetList) {
             System.out.println("###### Open res: " + tweetFile.getName() + " ######");
@@ -125,11 +155,13 @@ public class Analyser extends HttpServlet {
                 contentString = processEmoticons(contentString, sentimentFolder.getName());
                 contentString = processSlangWords(contentString);
                 contentString = processHashtags(contentString, sentimentFolder.getName());
-                contentString = processStopwords(contentString);
                 contentString = removePunctuation(contentString);
+                contentString = processStopwords(contentString);
                 contentString = processEmoji(contentString, sentimentFolder.getName());
 
-                //contentString = innerElaboration(contentString, sentimentFolder.getName());
+                contentString = processWord(contentString, sentimentFolder.getName());
+                contentString = processStopwords(contentString);
+
                 Files.write(destination, contentString.getBytes(charset));
 
             } catch (IOException ex) {
@@ -176,12 +208,11 @@ public class Analyser extends HttpServlet {
             File slangFile = new File("C:/Dropbox/lex_util/slang.txt");
             BufferedReader br = new BufferedReader(new FileReader(slangFile.getAbsolutePath()));
             String sCurrentLine;
+
             // Analizza ogni riga del file l'aggiunge alla hash globale
             while ((sCurrentLine = br.readLine()) != null) {
                 String[] parts = sCurrentLine.split(":");
                 slangs.put(" " + parts[0] + " ", " " + parts[1] + " ");
-                //System.out.println("DEBUG - " + parts[0] + " : " + parts[1]);
-
             }
         } catch (FileNotFoundException ex) {
             Logger.getLogger(Analyser.class
@@ -203,6 +234,7 @@ public class Analyser extends HttpServlet {
             File puntactionFile = new File("C:/Dropbox/lex_util/punctuation.txt");
             BufferedReader br = new BufferedReader(new FileReader(puntactionFile.getAbsolutePath()));
             String sCurrentLine;
+
             // Analizza ogni riga del file l'aggiunge alla lista
             while ((sCurrentLine = br.readLine()) != null) {
                 punctuation.add(sCurrentLine);
@@ -228,10 +260,10 @@ public class Analyser extends HttpServlet {
             File stopwordFile = new File("C:/Dropbox/lex_util/stopword_LONG.txt");
             BufferedReader br = new BufferedReader(new FileReader(stopwordFile.getAbsolutePath()));
             String sCurrentLine;
+
             // Analizza ogni riga del file l'aggiunge alla hash globale
             while ((sCurrentLine = br.readLine()) != null) {
                 stopwords.add(sCurrentLine);
-
             }
         } catch (FileNotFoundException ex) {
             Logger.getLogger(Analyser.class
@@ -327,11 +359,6 @@ public class Analyser extends HttpServlet {
      */
     private String processStopwords(String text) {
         System.out.print("Stopwords ... ");
-//        text = text.replace(System.lineSeparator(), " :-EOL-: ");
-//        for (String temp : stopwords) {
-//            text = text.replace(temp, " ");
-//        }
-//        text = text.replace(" :-EOL-: ", System.lineSeparator());
         StrBuilder elaboratedText = new StrBuilder();
         try {
             BufferedReader br = new BufferedReader(new StringReader(text));
@@ -372,7 +399,6 @@ public class Analyser extends HttpServlet {
                 String[] splittedText = sCurrentLine.split(" ");
                 for (String token : splittedText) {
                     if (token.length() > 1 && isHashTag(token)) {
-                        //System.out.println(token + " - " + tempCont);
                         elaborateHashtag(token, sentiment);
                     } else {
                         elaboratedText.append(" " + token);
@@ -542,5 +568,97 @@ public class Analyser extends HttpServlet {
     public String getServletInfo() {
         return "Short description";
     }// </editor-fold>
+
+    private String processWord(String text, String sentiment){
+        StrBuilder elaboratedText = new StrBuilder();
+        Properties props = new Properties();
+        props.put("annotators", "tokenize, ssplit, pos, lemma");
+        StanfordCoreNLP pipeline = new StanfordCoreNLP(props, false);
+        try {
+            Class.forName(myDriver);
+            Connection conn = DriverManager.getConnection(myUrl, myUser, myPass);
+            BufferedReader br = new BufferedReader(new StringReader(text));
+            String sCurrentLine;
+            while ((sCurrentLine = br.readLine()) != null) {
+                Annotation document = pipeline.process(sCurrentLine);
+                for (CoreMap sentence : document.get(CoreAnnotations.SentencesAnnotation.class)) {
+                    for (CoreLabel token : sentence.get(CoreAnnotations.TokensAnnotation.class)) {
+                        String lemma = token.get(CoreAnnotations.LemmaAnnotation.class);
+                        if (lemma.length() > 2 && !StringUtils.isNumeric(lemma) && !lemma.contains("'")) {
+
+                            if (isAlredyResLex(lemma, sentiment, conn)) {
+                                countOldWord(lemma, sentiment);
+                            } else {
+                                countNewWord(lemma, sentiment);
+                            }
+
+                            elaboratedText.append(" " + lemma);
+                        }
+                    }
+                    elaboratedText.appendNewLine();
+                }
+            }
+            conn.close();
+        } catch (IOException ex) {
+            Logger.getLogger(Analyser.class.getName()).log(Level.SEVERE, null, ex);
+        } catch (ClassNotFoundException ex) {
+            Logger.getLogger(Analyser.class.getName()).log(Level.SEVERE, null, ex);
+        } catch (SQLException ex) {
+            Logger.getLogger(Analyser.class.getName()).log(Level.SEVERE, null, ex);
+        }
+
+        return elaboratedText.toString();
+    }
+
+    private boolean isAlredyResLex(String lemma, String sentiment, Connection conn) {
+        boolean answer = false;
+        try {
+            Statement st = conn.createStatement();
+            String query = "SELECT * FROM " + sentiment + " WHERE WORD='" + lemma + "'";
+            ResultSet rs = st.executeQuery(query);
+            answer = rs.isBeforeFirst();
+            rs.close();
+            st.close();
+        } catch (SQLException ex) {
+            Logger.getLogger(Analyser.class.getName()).log(Level.SEVERE, null, ex);
+        }
+        return answer;
+    }
+
+    private void countOldWord(String lemma, String sentiment) {
+        if (oldWords.containsKey(sentiment)) {
+            if (oldWords.get(sentiment).containsKey(lemma)) {
+                HashMap<String, Integer> old = oldWords.get(sentiment);
+                old.replace(lemma, old.get(lemma) + 1);
+                oldWords.replace(sentiment, old);
+            } else {
+                HashMap<String, Integer> temp = oldWords.get(sentiment);
+                temp.put(lemma, 1);
+                oldWords.put(sentiment, temp);
+            }
+        } else {
+            HashMap<String, Integer> first = new HashMap<>();
+            first.put(lemma, 1);
+            oldWords.put(sentiment, first);
+        }
+    }
+
+    private void countNewWord(String lemma, String sentiment) {
+        if (newWords.containsKey(sentiment)) {
+            if (newWords.get(sentiment).containsKey(lemma)) {
+                HashMap<String, Integer> old = newWords.get(sentiment);
+                old.replace(lemma, old.get(lemma) + 1);
+                newWords.replace(sentiment, old);
+            } else {
+                HashMap<String, Integer> temp = newWords.get(sentiment);
+                temp.put(lemma, 1);
+                newWords.put(sentiment, temp);
+            }
+        } else {
+            HashMap<String, Integer> first = new HashMap<>();
+            first.put(lemma, 1);
+            newWords.put(sentiment, first);
+        }
+    }
 
 }
