@@ -38,6 +38,7 @@ import com.vdurmont.emoji.EmojiParser;
 import edu.stanford.nlp.ling.CoreAnnotations;
 import java.sql.Connection;
 import java.sql.DriverManager;
+import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
@@ -133,6 +134,11 @@ public class Analyser extends HttpServlet {
             System.out.println("------ SENTIMENT " + sentimentFolder.getName() + "------");
             elaborateSentiment(sentimentFolder);
         }
+        System.out.println("\n\nElaboration Complete!\n\n");
+
+//         Terminata la fase di elaborazione dei tweet, raccolti i risultati
+//         nelle strutture dati temporanee si procede al salvataggio su DB
+        storeResultsOperation();
     }
 
     private void elaborateSentiment(File sentimentFolder) {
@@ -151,19 +157,18 @@ public class Analyser extends HttpServlet {
                 byte[] contentByte = Files.readAllBytes(path);
                 String contentString = new String(contentByte, charset);
 
-                contentString = removeTwitterWords(contentString);
+//                contentString = removeTwitterWords(contentString);
                 contentString = processEmoticons(contentString, sentimentFolder.getName());
-                contentString = processSlangWords(contentString);
-                contentString = processHashtags(contentString, sentimentFolder.getName());
-                contentString = removePunctuation(contentString);
-                contentString = processStopwords(contentString);
-                contentString = processEmoji(contentString, sentimentFolder.getName());
+//                contentString = processSlangWords(contentString);
+//                contentString = processHashtags(contentString, sentimentFolder.getName());
+//                contentString = removePunctuation(contentString);
+//                contentString = processStopwords(contentString);
+//                contentString = processEmoji(contentString, sentimentFolder.getName());
 
-                contentString = processWord(contentString, sentimentFolder.getName());
-                contentString = processStopwords(contentString);
-
-                Files.write(destination, contentString.getBytes(charset));
-
+//                contentString = processWord(contentString, sentimentFolder.getName());
+//                contentString = processStopwords(contentString);
+//
+//                Files.write(destination, contentString.getBytes(charset));
             } catch (IOException ex) {
                 Logger.getLogger(Analyser.class
                         .getName()).log(Level.SEVERE, null, ex);
@@ -569,7 +574,7 @@ public class Analyser extends HttpServlet {
         return "Short description";
     }// </editor-fold>
 
-    private String processWord(String text, String sentiment){
+    private String processWord(String text, String sentiment) {
         StrBuilder elaboratedText = new StrBuilder();
         Properties props = new Properties();
         props.put("annotators", "tokenize, ssplit, pos, lemma");
@@ -585,13 +590,11 @@ public class Analyser extends HttpServlet {
                     for (CoreLabel token : sentence.get(CoreAnnotations.TokensAnnotation.class)) {
                         String lemma = token.get(CoreAnnotations.LemmaAnnotation.class);
                         if (lemma.length() > 2 && !StringUtils.isNumeric(lemma) && !lemma.contains("'")) {
-
                             if (isAlredyResLex(lemma, sentiment, conn)) {
                                 countOldWord(lemma, sentiment);
                             } else {
                                 countNewWord(lemma, sentiment);
                             }
-
                             elaboratedText.append(" " + lemma);
                         }
                     }
@@ -606,7 +609,6 @@ public class Analyser extends HttpServlet {
         } catch (SQLException ex) {
             Logger.getLogger(Analyser.class.getName()).log(Level.SEVERE, null, ex);
         }
-
         return elaboratedText.toString();
     }
 
@@ -659,6 +661,95 @@ public class Analyser extends HttpServlet {
             first.put(lemma, 1);
             newWords.put(sentiment, first);
         }
+    }
+
+    private void storeResultsOperation() {
+        try {
+            Class.forName(myDriver);
+            Connection conn = DriverManager.getConnection(myUrl, myUser, myPass);
+            conn.setAutoCommit(false);
+
+            storeEmoticonsIntoDB(conn);
+            //storeEmojiIntoDB();
+            //storeHashtagsIntoDB();
+            //storeOldWordsIntoDB();
+            //storeNewWordsIntoDB();
+
+            conn.close();
+        } catch (ClassNotFoundException ex) {
+            Logger.getLogger(Analyser.class.getName()).log(Level.SEVERE, null, ex);
+        } catch (SQLException ex) {
+            Logger.getLogger(Analyser.class.getName()).log(Level.SEVERE, null, ex);
+        }
+
+    }
+
+    private void storeEmoticonsIntoDB(Connection conn) {
+        try {
+            String queryCreate = "DROP TABLE EMOTICON";
+            Statement stDel = conn.createStatement();
+            stDel.executeQuery(queryCreate);
+            conn.commit();
+            stDel.close();
+        } catch (SQLException ex) {
+            System.out.println("La tabella non era presente precedentemente");
+            Logger.getLogger(Analyser.class.getName()).log(Level.SEVERE, null, ex);
+        }
+        
+        try {
+            String queryCreate = "CREATE TABLE EMOTICON ( EMOTICON VARCHAR(50),";
+            for (File sentiment : sentimentsFoldersList) {
+                queryCreate += " " + sentiment.getName().toUpperCase() + " INT,";
+            }
+            queryCreate += " PRIMARY KEY(EMOTICON) )";
+            Statement st = conn.createStatement();
+            st.executeQuery(queryCreate);
+            conn.commit();
+            st.close();
+        } catch (SQLException ex) {
+            Logger.getLogger(Analyser.class.getName()).log(Level.SEVERE, null, ex);
+        }
+
+        String queryInsert = "INSERT INTO EMOTICON ("
+                + "EMOTICON, "
+                + "ANGER, "
+                + "ANTICIPATION, "
+                + "DISGUST, "
+                + "FEAR, "
+                + "JOY, "
+                + "SADNESS, "
+                + "SURPRISE, "
+                + "TRUST) "
+                + "VALUES "
+                + "(?, ?, ?, ?, ?, ?, ?, ?, ?)";
+        // query modificabile per non esplicitare i sentimenti ma per il momento va bene così
+
+        PreparedStatement pstmt;
+        try {
+            pstmt = conn.prepareStatement(queryInsert);
+            for (Map.Entry emo : emoticons.entrySet()) {
+                int i = 1;
+                String id = (String) emo.getKey();
+                HashMap<String, Integer> sentimentsHash = (HashMap<String, Integer>) emo.getValue();
+                id = id.replace("'", "''");
+                pstmt.setString(i++, id);
+
+                for (File sentiment : sentimentsFoldersList) {
+                    if (sentimentsHash.containsKey(sentiment.getName())) {
+                        pstmt.setInt(i++, sentimentsHash.get(sentiment.getName()));
+                    } else {
+                        pstmt.setInt(i++, 0);
+                    }
+                }
+                pstmt.addBatch();
+            }
+            pstmt.executeBatch();
+            conn.commit();
+            pstmt.close();
+        } catch (SQLException ex) {
+            Logger.getLogger(Analyser.class.getName()).log(Level.SEVERE, null, ex);
+        }
+
     }
 
 }
