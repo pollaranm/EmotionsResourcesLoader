@@ -158,12 +158,12 @@ public class Analyser extends HttpServlet {
                 String contentString = new String(contentByte, charset);
 
 //                contentString = removeTwitterWords(contentString);
-                contentString = processEmoticons(contentString, sentimentFolder.getName());
+//                contentString = processEmoticons(contentString, sentimentFolder.getName());
 //                contentString = processSlangWords(contentString);
-//                contentString = processHashtags(contentString, sentimentFolder.getName());
+                contentString = processHashtags(contentString, sentimentFolder.getName());
 //                contentString = removePunctuation(contentString);
 //                contentString = processStopwords(contentString);
-                contentString = processEmoji(contentString, sentimentFolder.getName());
+//                contentString = processEmoji(contentString, sentimentFolder.getName());
 
 //                contentString = processWord(contentString, sentimentFolder.getName());
 //                contentString = processStopwords(contentString);
@@ -669,9 +669,9 @@ public class Analyser extends HttpServlet {
             Connection conn = DriverManager.getConnection(myUrl, myUser, myPass);
             conn.setAutoCommit(false);
 
-            storeEmoticonsIntoDB(conn);
-            storeEmojiIntoDB(conn);
-            //storeHashtagsIntoDB();
+            //storeEmoticonsIntoDB(conn);
+            //storeEmojiIntoDB(conn);
+            storeHashtagsIntoDB(conn);
             //storeOldWordsIntoDB();
             //storeNewWordsIntoDB();
 
@@ -692,8 +692,7 @@ public class Analyser extends HttpServlet {
             conn.commit();
             stDel.close();
         } catch (SQLException ex) {
-            System.out.println("La tabella non era presente precedentemente");
-            Logger.getLogger(Analyser.class.getName()).log(Level.SEVERE, null, ex);
+            System.out.println("La tabella EMOTICON non era presente precedentemente");
         }
 
         try {
@@ -760,8 +759,7 @@ public class Analyser extends HttpServlet {
             conn.commit();
             stDel.close();
         } catch (SQLException ex) {
-            System.out.println("La tabella non era presente precedentemente");
-            Logger.getLogger(Analyser.class.getName()).log(Level.SEVERE, null, ex);
+            System.out.println("La tabella EMOJI non era presente precedentemente");
         }
 
         try {
@@ -802,6 +800,71 @@ public class Analyser extends HttpServlet {
                 pstmt.setString(i++, alias);
                 String html = EmojiManager.getForAlias(alias).getHtml();
                 pstmt.setString(i++, html);
+                for (File sentiment : sentimentsFoldersList) {
+                    if (sentimentsHash.containsKey(sentiment.getName())) {
+                        pstmt.setInt(i++, sentimentsHash.get(sentiment.getName()));
+                    } else {
+                        pstmt.setInt(i++, 0);
+                    }
+                }
+                pstmt.addBatch();
+            }
+            pstmt.executeBatch();
+            conn.commit();
+            pstmt.close();
+        } catch (SQLException ex) {
+            Logger.getLogger(Analyser.class.getName()).log(Level.SEVERE, null, ex);
+        }
+    }
+
+    private void storeHashtagsIntoDB(Connection conn) {
+        try {
+            String queryCreate = "DROP TABLE HASHTAG";
+            Statement stDel = conn.createStatement();
+            stDel.executeQuery(queryCreate);
+            conn.commit();
+            stDel.close();
+        } catch (SQLException ex) {
+            System.out.println("La tabella HASHTAG non era presente precedentemente");
+        }
+
+        try {
+            String queryCreate = "CREATE TABLE HASHTAG ( HASHTAG VARCHAR(50),";
+            for (File sentiment : sentimentsFoldersList) {
+                queryCreate += " " + sentiment.getName().toUpperCase() + " INT,";
+            }
+            queryCreate += " PRIMARY KEY(HASHTAG) )";
+            Statement st = conn.createStatement();
+            st.executeQuery(queryCreate);
+            conn.commit();
+            st.close();
+        } catch (SQLException ex) {
+            Logger.getLogger(Analyser.class.getName()).log(Level.SEVERE, null, ex);
+        }
+
+        String queryInsert = "INSERT INTO HASHTAG ("
+                + "HASHTAG, "
+                + "ANGER, "
+                + "ANTICIPATION, "
+                + "DISGUST, "
+                + "FEAR, "
+                + "JOY, "
+                + "SADNESS, "
+                + "SURPRISE, "
+                + "TRUST) "
+                + "VALUES "
+                + "(?, ?, ?, ?, ?, ?, ?, ?, ?)";
+        // query modificabile per non esplicitare i sentimenti ma per il momento va bene così
+
+        PreparedStatement pstmt;
+        try {
+            pstmt = conn.prepareStatement(queryInsert);
+            for (Map.Entry tag : hashtags.entrySet()) {
+                int i = 1;
+                String id = (String) tag.getKey();
+                HashMap<String, Integer> sentimentsHash = (HashMap<String, Integer>) tag.getValue();
+                pstmt.setString(i++, id);
+                System.out.println("----"+ id);
                 for (File sentiment : sentimentsFoldersList) {
                     if (sentimentsHash.containsKey(sentiment.getName())) {
                         pstmt.setInt(i++, sentimentsHash.get(sentiment.getName()));
