@@ -160,15 +160,14 @@ public class Analyser extends HttpServlet {
 //                contentString = removeTwitterWords(contentString);
 //                contentString = processEmoticons(contentString, sentimentFolder.getName());
 //                contentString = processSlangWords(contentString);
-                contentString = processHashtags(contentString, sentimentFolder.getName());
+//                contentString = processHashtags(contentString, sentimentFolder.getName());
 //                contentString = removePunctuation(contentString);
 //                contentString = processStopwords(contentString);
 //                contentString = processEmoji(contentString, sentimentFolder.getName());
-
-//                contentString = processWord(contentString, sentimentFolder.getName());
+                contentString = processWord(contentString, sentimentFolder.getName());
 //                contentString = processStopwords(contentString);
-//
-//                Files.write(destination, contentString.getBytes(charset));
+
+                Files.write(destination, contentString.getBytes(charset));
             } catch (IOException ex) {
                 Logger.getLogger(Analyser.class
                         .getName()).log(Level.SEVERE, null, ex);
@@ -403,7 +402,7 @@ public class Analyser extends HttpServlet {
             while ((sCurrentLine = br.readLine()) != null) {
                 String[] splittedText = sCurrentLine.split(" ");
                 for (String token : splittedText) {
-                    if (token.length() > 1 && isHashTag(token)) {
+                    if (token.length() > 2 && isHashTag(token)) {
                         elaborateHashtag(token, sentiment);
                     } else {
                         elaboratedText.append(" " + token);
@@ -669,16 +668,14 @@ public class Analyser extends HttpServlet {
             Connection conn = DriverManager.getConnection(myUrl, myUser, myPass);
             conn.setAutoCommit(false);
 
-            //storeEmoticonsIntoDB(conn);
-            //storeEmojiIntoDB(conn);
-            storeHashtagsIntoDB(conn);
-            //storeOldWordsIntoDB();
+//            storeEmoticonsIntoDB(conn);
+//            storeEmojiIntoDB(conn);
+//            storeHashtagsIntoDB(conn);
+            storeOldWordsIntoDB(conn);
             //storeNewWordsIntoDB();
 
             conn.close();
-        } catch (ClassNotFoundException ex) {
-            Logger.getLogger(Analyser.class.getName()).log(Level.SEVERE, null, ex);
-        } catch (SQLException ex) {
+        } catch (ClassNotFoundException | SQLException ex) {
             Logger.getLogger(Analyser.class.getName()).log(Level.SEVERE, null, ex);
         }
 
@@ -829,7 +826,7 @@ public class Analyser extends HttpServlet {
         }
 
         try {
-            String queryCreate = "CREATE TABLE HASHTAG ( HASHTAG VARCHAR(50),";
+            String queryCreate = "CREATE TABLE HASHTAG ( HASHTAG VARCHAR(100),";
             for (File sentiment : sentimentsFoldersList) {
                 queryCreate += " " + sentiment.getName().toUpperCase() + " INT,";
             }
@@ -864,7 +861,6 @@ public class Analyser extends HttpServlet {
                 String id = (String) tag.getKey();
                 HashMap<String, Integer> sentimentsHash = (HashMap<String, Integer>) tag.getValue();
                 pstmt.setString(i++, id);
-                System.out.println("----"+ id);
                 for (File sentiment : sentimentsFoldersList) {
                     if (sentimentsHash.containsKey(sentiment.getName())) {
                         pstmt.setInt(i++, sentimentsHash.get(sentiment.getName()));
@@ -877,6 +873,29 @@ public class Analyser extends HttpServlet {
             pstmt.executeBatch();
             conn.commit();
             pstmt.close();
+        } catch (SQLException ex) {
+            Logger.getLogger(Analyser.class.getName()).log(Level.SEVERE, null, ex);
+        }
+    }
+
+    private void storeOldWordsIntoDB(Connection conn) {
+        try {
+            for (Map.Entry sentiment : oldWords.entrySet()) {
+                String table = myUser + "." + (String) sentiment.getKey();
+                String queryUpdate = "UPDATE " + table.toUpperCase() + " SET COUNT_TWEET = ? WHERE WORD = ?";
+//                System.out.println("### SENTIMENTO - " + table + " ###");
+                PreparedStatement pstmt = conn.prepareStatement(queryUpdate);
+                HashMap<String, Integer> sentimentWords = (HashMap<String, Integer>) sentiment.getValue();
+                for (Map.Entry word : sentimentWords.entrySet()) {
+//                    System.out.println("--- " + (String) word.getKey() + " - " + (Integer) word.getValue());
+                    pstmt.setInt(1, (Integer) word.getValue());
+                    pstmt.setString(2, (String) word.getKey());
+                    pstmt.addBatch();
+                }
+                pstmt.executeBatch();
+                conn.commit();
+                pstmt.close();
+            }
         } catch (SQLException ex) {
             Logger.getLogger(Analyser.class.getName()).log(Level.SEVERE, null, ex);
         }
