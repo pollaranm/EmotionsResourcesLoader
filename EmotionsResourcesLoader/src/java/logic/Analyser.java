@@ -163,7 +163,7 @@ public class Analyser extends HttpServlet {
 //                contentString = processHashtags(contentString, sentimentFolder.getName());
 //                contentString = removePunctuation(contentString);
 //                contentString = processStopwords(contentString);
-//                contentString = processEmoji(contentString, sentimentFolder.getName());
+                contentString = processEmoji(contentString, sentimentFolder.getName());
 
 //                contentString = processWord(contentString, sentimentFolder.getName());
 //                contentString = processStopwords(contentString);
@@ -670,7 +670,7 @@ public class Analyser extends HttpServlet {
             conn.setAutoCommit(false);
 
             storeEmoticonsIntoDB(conn);
-            //storeEmojiIntoDB();
+            storeEmojiIntoDB(conn);
             //storeHashtagsIntoDB();
             //storeOldWordsIntoDB();
             //storeNewWordsIntoDB();
@@ -695,7 +695,7 @@ public class Analyser extends HttpServlet {
             System.out.println("La tabella non era presente precedentemente");
             Logger.getLogger(Analyser.class.getName()).log(Level.SEVERE, null, ex);
         }
-        
+
         try {
             String queryCreate = "CREATE TABLE EMOTICON ( EMOTICON VARCHAR(50),";
             for (File sentiment : sentimentsFoldersList) {
@@ -750,6 +750,73 @@ public class Analyser extends HttpServlet {
             Logger.getLogger(Analyser.class.getName()).log(Level.SEVERE, null, ex);
         }
 
+    }
+
+    private void storeEmojiIntoDB(Connection conn) {
+        try {
+            String queryCreate = "DROP TABLE EMOJI";
+            Statement stDel = conn.createStatement();
+            stDel.executeQuery(queryCreate);
+            conn.commit();
+            stDel.close();
+        } catch (SQLException ex) {
+            System.out.println("La tabella non era presente precedentemente");
+            Logger.getLogger(Analyser.class.getName()).log(Level.SEVERE, null, ex);
+        }
+
+        try {
+            String queryCreate = "CREATE TABLE EMOJI ( ALIAS VARCHAR(50), HTML VARCHAR(20),";
+            for (File sentiment : sentimentsFoldersList) {
+                queryCreate += " " + sentiment.getName().toUpperCase() + " INT,";
+            }
+            queryCreate += " PRIMARY KEY(ALIAS) )";
+            Statement st = conn.createStatement();
+            st.executeQuery(queryCreate);
+            conn.commit();
+            st.close();
+        } catch (SQLException ex) {
+            Logger.getLogger(Analyser.class.getName()).log(Level.SEVERE, null, ex);
+        }
+
+        String queryInsert = "INSERT INTO EMOJI ("
+                + "ALIAS, HTML, "
+                + "ANGER, "
+                + "ANTICIPATION, "
+                + "DISGUST, "
+                + "FEAR, "
+                + "JOY, "
+                + "SADNESS, "
+                + "SURPRISE, "
+                + "TRUST) "
+                + "VALUES "
+                + "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+        // query modificabile per non esplicitare i sentimenti ma per il momento va bene così
+
+        PreparedStatement pstmt;
+        try {
+            pstmt = conn.prepareStatement(queryInsert);
+            for (Map.Entry emo : emoji.entrySet()) {
+                int i = 1;
+                String alias = (String) emo.getKey();
+                HashMap<String, Integer> sentimentsHash = (HashMap<String, Integer>) emo.getValue();
+                pstmt.setString(i++, alias);
+                String html = EmojiManager.getForAlias(alias).getHtml();
+                pstmt.setString(i++, html);
+                for (File sentiment : sentimentsFoldersList) {
+                    if (sentimentsHash.containsKey(sentiment.getName())) {
+                        pstmt.setInt(i++, sentimentsHash.get(sentiment.getName()));
+                    } else {
+                        pstmt.setInt(i++, 0);
+                    }
+                }
+                pstmt.addBatch();
+            }
+            pstmt.executeBatch();
+            conn.commit();
+            pstmt.close();
+        } catch (SQLException ex) {
+            Logger.getLogger(Analyser.class.getName()).log(Level.SEVERE, null, ex);
+        }
     }
 
 }
