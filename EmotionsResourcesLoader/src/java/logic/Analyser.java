@@ -12,7 +12,6 @@ import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.FileReader;
 import java.io.IOException;
-import java.io.Reader;
 import java.io.StringReader;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
@@ -43,6 +42,8 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.Collection;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  *
@@ -138,6 +139,7 @@ public class Analyser extends HttpServlet {
 
 //         Terminata la fase di elaborazione dei tweet, raccolti i risultati
 //         nelle strutture dati temporanee si procede al salvataggio su DB
+        
         storeResultsOperation();
     }
 
@@ -157,15 +159,15 @@ public class Analyser extends HttpServlet {
                 byte[] contentByte = Files.readAllBytes(path);
                 String contentString = new String(contentByte, charset);
 
-//                contentString = removeTwitterWords(contentString);
-//                contentString = processEmoticons(contentString, sentimentFolder.getName());
-//                contentString = processSlangWords(contentString);
-//                contentString = processHashtags(contentString, sentimentFolder.getName());
-//                contentString = removePunctuation(contentString);
-//                contentString = processStopwords(contentString);
-//                contentString = processEmoji(contentString, sentimentFolder.getName());
+                contentString = removeTwitterWords(contentString);
+                contentString = processEmoticons(contentString, sentimentFolder.getName());
+                contentString = processSlangWords(contentString);
+                contentString = processHashtags(contentString, sentimentFolder.getName());
+                contentString = removePunctuation(contentString);
+                contentString = processStopwords(contentString);
+                contentString = processEmoji(contentString, sentimentFolder.getName());
                 contentString = processWord(contentString, sentimentFolder.getName());
-//                contentString = processStopwords(contentString);
+                contentString = processStopwords(contentString);
 
                 Files.write(destination, contentString.getBytes(charset));
             } catch (IOException ex) {
@@ -520,7 +522,7 @@ public class Analyser extends HttpServlet {
      */
     private void elaborateEmoji(String word, String sentiment) {
         word = EmojiParser.parseToAliases(word);
-        //System.out.println(word);
+        System.out.println(word);
         if (emoji.get(word).containsKey(sentiment)) {
             // se non è la prima volta che lo osservo in questo sentimento, aggiorno
             HashMap<String, Integer> old = emoji.get(word);
@@ -574,21 +576,29 @@ public class Analyser extends HttpServlet {
     }// </editor-fold>
 
     private String processWord(String text, String sentiment) {
+        System.out.println("Words ... ");
         StrBuilder elaboratedText = new StrBuilder();
         Properties props = new Properties();
         props.put("annotators", "tokenize, ssplit, pos, lemma");
         StanfordCoreNLP pipeline = new StanfordCoreNLP(props, false);
+
+        Pattern pattern = Pattern.compile("^[a-z0-9]*$");
+
         try {
             Class.forName(myDriver);
             Connection conn = DriverManager.getConnection(myUrl, myUser, myPass);
             BufferedReader br = new BufferedReader(new StringReader(text));
             String sCurrentLine;
+
             while ((sCurrentLine = br.readLine()) != null) {
                 Annotation document = pipeline.process(sCurrentLine);
                 for (CoreMap sentence : document.get(CoreAnnotations.SentencesAnnotation.class)) {
                     for (CoreLabel token : sentence.get(CoreAnnotations.TokensAnnotation.class)) {
-                        String lemma = token.get(CoreAnnotations.LemmaAnnotation.class);
-                        if (lemma.length() > 2 && !StringUtils.isNumeric(lemma) && !lemma.contains("'")) {
+                        String tokenString = token.get(CoreAnnotations.TextAnnotation.class);
+                        Matcher matcher = pattern.matcher(tokenString);
+                       
+                        if (tokenString.length() > 2 && tokenString.length() <= 50 && !StringUtils.isNumeric(tokenString) && !tokenString.contains("'") && matcher.matches()) {
+                            String lemma = token.get(CoreAnnotations.LemmaAnnotation.class);
                             if (isAlredyResLex(lemma, sentiment, conn)) {
                                 countOldWord(lemma, sentiment);
                             } else {
@@ -608,11 +618,12 @@ public class Analyser extends HttpServlet {
         } catch (SQLException ex) {
             Logger.getLogger(Analyser.class.getName()).log(Level.SEVERE, null, ex);
         }
+        System.out.print("PROCESSED");
         return elaboratedText.toString();
     }
 
     private boolean isAlredyResLex(String lemma, String sentiment, Connection conn) {
-        boolean answer = false;
+        boolean answer = true;
         try {
             Statement st = conn.createStatement();
             String query = "SELECT * FROM " + sentiment + " WHERE WORD='" + lemma + "'";
@@ -668,11 +679,11 @@ public class Analyser extends HttpServlet {
             Connection conn = DriverManager.getConnection(myUrl, myUser, myPass);
             conn.setAutoCommit(false);
 
-//            storeEmoticonsIntoDB(conn);
-//            storeEmojiIntoDB(conn);
-//            storeHashtagsIntoDB(conn);
+            storeEmoticonsIntoDB(conn);
+            storeEmojiIntoDB(conn);
+            storeHashtagsIntoDB(conn);
             storeOldWordsIntoDB(conn);
-            //storeNewWordsIntoDB();
+            storeNewWordsIntoDB(conn);
 
             conn.close();
         } catch (ClassNotFoundException | SQLException ex) {
@@ -682,6 +693,7 @@ public class Analyser extends HttpServlet {
     }
 
     private void storeEmoticonsIntoDB(Connection conn) {
+        System.out.println("Saving EMOTICON ... ");
         try {
             String queryCreate = "DROP TABLE EMOTICON";
             Statement stDel = conn.createStatement();
@@ -745,10 +757,12 @@ public class Analyser extends HttpServlet {
         } catch (SQLException ex) {
             Logger.getLogger(Analyser.class.getName()).log(Level.SEVERE, null, ex);
         }
+        System.out.println("COMPLETE!");
 
     }
 
     private void storeEmojiIntoDB(Connection conn) {
+        System.out.println("Saving EMOJI ...");
         try {
             String queryCreate = "DROP TABLE EMOJI";
             Statement stDel = conn.createStatement();
@@ -812,9 +826,11 @@ public class Analyser extends HttpServlet {
         } catch (SQLException ex) {
             Logger.getLogger(Analyser.class.getName()).log(Level.SEVERE, null, ex);
         }
+        System.out.println("COMPLETE!");
     }
 
     private void storeHashtagsIntoDB(Connection conn) {
+        System.out.println("Saving HASHTAG ...");
         try {
             String queryCreate = "DROP TABLE HASHTAG";
             Statement stDel = conn.createStatement();
@@ -876,18 +892,20 @@ public class Analyser extends HttpServlet {
         } catch (SQLException ex) {
             Logger.getLogger(Analyser.class.getName()).log(Level.SEVERE, null, ex);
         }
+        System.out.println("COMPLETE!");
     }
 
     private void storeOldWordsIntoDB(Connection conn) {
+        System.out.println("Saving OLDWORD ... ");
         try {
             for (Map.Entry sentiment : oldWords.entrySet()) {
                 String table = myUser + "." + (String) sentiment.getKey();
                 String queryUpdate = "UPDATE " + table.toUpperCase() + " SET COUNT_TWEET = ? WHERE WORD = ?";
-//                System.out.println("### SENTIMENTO - " + table + " ###");
+                //System.out.println("### SENTIMENTO - " + table + " ###");
                 PreparedStatement pstmt = conn.prepareStatement(queryUpdate);
                 HashMap<String, Integer> sentimentWords = (HashMap<String, Integer>) sentiment.getValue();
                 for (Map.Entry word : sentimentWords.entrySet()) {
-//                    System.out.println("--- " + (String) word.getKey() + " - " + (Integer) word.getValue());
+                    //System.out.println("--- " + (String) word.getKey() + " - " + (Integer) word.getValue());
                     pstmt.setInt(1, (Integer) word.getValue());
                     pstmt.setString(2, (String) word.getKey());
                     pstmt.addBatch();
@@ -899,6 +917,38 @@ public class Analyser extends HttpServlet {
         } catch (SQLException ex) {
             Logger.getLogger(Analyser.class.getName()).log(Level.SEVERE, null, ex);
         }
+        System.out.println("COMPLETE!");
+    }
+
+    private void storeNewWordsIntoDB(Connection conn) {
+        System.out.println("Saving NEWWORD ... ");
+        try {
+            for (Map.Entry sentiment : newWords.entrySet()) {
+                String table = myUser + "." + (String) sentiment.getKey();
+                String queryInsert = "INSERT INTO " + table.toUpperCase()
+                        + " (WORD, COUNT_RES, PERC_RES, COUNT_TWEET) VALUES (?,?,?,?)";
+                //System.out.println("### SENTIMENTO - " + table + " ###");
+                PreparedStatement pstmt = conn.prepareStatement(queryInsert);
+                HashMap<String, Integer> sentimentWords = (HashMap<String, Integer>) sentiment.getValue();
+                for (Map.Entry word : sentimentWords.entrySet()) {
+                    int i = 1;
+                    String stringWord = (String) word.getKey();
+                    pstmt.setString(i++, stringWord);
+                    pstmt.setInt(i++, 0);
+                    pstmt.setFloat(i++, 0);
+                    pstmt.setInt(i, (Integer) word.getValue());
+                    //System.out.println("--- " + (String) word.getKey() + " - " + (Integer) word.getValue());
+                    pstmt.addBatch();
+
+                }
+                pstmt.executeBatch();
+                conn.commit();
+                pstmt.close();
+            }
+        } catch (SQLException ex) {
+            Logger.getLogger(Analyser.class.getName()).log(Level.SEVERE, null, ex);
+        }
+        System.out.println("COMPLETE!");
     }
 
 }
