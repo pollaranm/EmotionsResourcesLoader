@@ -42,6 +42,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.Collection;
+import java.util.Date;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -124,6 +125,9 @@ public class Analyser extends HttpServlet {
     protected void processRequest(HttpServletRequest request, HttpServletResponse response)
             throws ServletException, IOException {
 
+        Date d1 = new Date();
+        
+        
         loadEmoticons();
         loadSlangs();
         loadStopwords();
@@ -139,8 +143,20 @@ public class Analyser extends HttpServlet {
 
 //         Terminata la fase di elaborazione dei tweet, raccolti i risultati
 //         nelle strutture dati temporanee si procede al salvataggio su DB
-        
         storeResultsOperation();
+
+        Date d2 = new Date();
+        long diff = d2.getTime() - d1.getTime();
+
+        long diffSeconds = diff / 1000 % 60;
+        long diffMinutes = diff / (60 * 1000) % 60;
+        long diffHours = diff / (60 * 60 * 1000) % 24;
+        long diffDays = diff / (24 * 60 * 60 * 1000);
+
+        System.out.print(diffDays + " days, ");
+        System.out.print(diffHours + " hours, ");
+        System.out.print(diffMinutes + " minutes, ");
+        System.out.print(diffSeconds + " seconds.");
     }
 
     private void elaborateSentiment(File sentimentFolder) {
@@ -164,8 +180,11 @@ public class Analyser extends HttpServlet {
                 contentString = processSlangWords(contentString);
                 contentString = processHashtags(contentString, sentimentFolder.getName());
                 contentString = removePunctuation(contentString);
-                contentString = processStopwords(contentString);
                 contentString = processEmoji(contentString, sentimentFolder.getName());
+                contentString = processStopwords(contentString);
+                // se fossimo in grado di trattare gli emoji attaccati non sarebbe necessario
+                contentString = processUnknownItem(contentString);
+                //
                 contentString = processWord(contentString, sentimentFolder.getName());
                 contentString = processStopwords(contentString);
 
@@ -404,7 +423,7 @@ public class Analyser extends HttpServlet {
             while ((sCurrentLine = br.readLine()) != null) {
                 String[] splittedText = sCurrentLine.split(" ");
                 for (String token : splittedText) {
-                    if (token.length() > 2 && isHashTag(token)) {
+                    if (isHashTag(token)) {
                         elaborateHashtag(token, sentiment);
                     } else {
                         elaboratedText.append(" " + token);
@@ -460,7 +479,9 @@ public class Analyser extends HttpServlet {
      * <code>FALSE</code> altrimenti
      */
     private boolean isHashTag(String word) {
-        return word.substring(0, 1).equals("#") ? true : false;
+        Pattern pattern = Pattern.compile("(?:(?<=\\\\s)|^)#[a-z]{2,50}");
+        Matcher matcher = pattern.matcher(word);
+        return matcher.matches();
     }
 
     /**
@@ -522,7 +543,7 @@ public class Analyser extends HttpServlet {
      */
     private void elaborateEmoji(String word, String sentiment) {
         word = EmojiParser.parseToAliases(word);
-        System.out.println(word);
+        //System.out.println(word);
         if (emoji.get(word).containsKey(sentiment)) {
             // se non è la prima volta che lo osservo in questo sentimento, aggiorno
             HashMap<String, Integer> old = emoji.get(word);
@@ -582,7 +603,7 @@ public class Analyser extends HttpServlet {
         props.put("annotators", "tokenize, ssplit, pos, lemma");
         StanfordCoreNLP pipeline = new StanfordCoreNLP(props, false);
 
-        Pattern pattern = Pattern.compile("^[a-z0-9]*$");
+        Pattern pattern = Pattern.compile("^[a-z0-9]{2,50}$");
 
         try {
             Class.forName(myDriver);
@@ -596,7 +617,7 @@ public class Analyser extends HttpServlet {
                     for (CoreLabel token : sentence.get(CoreAnnotations.TokensAnnotation.class)) {
                         String tokenString = token.get(CoreAnnotations.TextAnnotation.class);
                         Matcher matcher = pattern.matcher(tokenString);
-                       
+
                         if (tokenString.length() > 2 && tokenString.length() <= 50 && !StringUtils.isNumeric(tokenString) && !tokenString.contains("'") && matcher.matches()) {
                             String lemma = token.get(CoreAnnotations.LemmaAnnotation.class);
                             if (isAlredyResLex(lemma, sentiment, conn)) {
@@ -949,6 +970,31 @@ public class Analyser extends HttpServlet {
             Logger.getLogger(Analyser.class.getName()).log(Level.SEVERE, null, ex);
         }
         System.out.println("COMPLETE!");
+    }
+
+    private String processUnknownItem(String text) {
+        System.out.print("Unknown token ... ");
+        Pattern pattern = Pattern.compile("^[a-z0-9]{2,50}$");
+        Matcher matcher;
+        StrBuilder elaboratedText = new StrBuilder();
+        try {
+            BufferedReader br = new BufferedReader(new StringReader(text));
+            String sCurrentLine;
+            while ((sCurrentLine = br.readLine()) != null) {
+                String[] splittedText = sCurrentLine.split(" ");
+                for (String token : splittedText) {
+                    matcher = pattern.matcher(token);
+                    if( matcher.matches() ){
+                        elaboratedText.append(" " + token);
+                    }
+                }
+                elaboratedText.appendNewLine();
+            }
+        } catch (IOException ex) {
+            Logger.getLogger(Analyser.class.getName()).log(Level.SEVERE, null, ex);
+        }
+        System.out.print("REMOVED");
+        return elaboratedText.toString();
     }
 
 }
