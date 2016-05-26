@@ -46,10 +46,6 @@ import java.util.Date;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/**
- *
- * @author TTm
- */
 public class Analyser extends HttpServlet {
 
     /**
@@ -125,9 +121,11 @@ public class Analyser extends HttpServlet {
     protected void processRequest(HttpServletRequest request, HttpServletResponse response)
             throws ServletException, IOException {
 
+        /**
+         * Timestamp di inizio elaborazione
+         */
         Date d1 = new Date();
-        
-        
+
         loadEmoticons();
         loadSlangs();
         loadStopwords();
@@ -141,10 +139,15 @@ public class Analyser extends HttpServlet {
         }
         System.out.println("\n\nElaboration Complete!\n\n");
 
-//         Terminata la fase di elaborazione dei tweet, raccolti i risultati
-//         nelle strutture dati temporanee si procede al salvataggio su DB
+        /**
+         * Terminata la fase di elaborazione dei tweet, raccolti i risultati
+         * nelle strutture dati temporanee si procede al salvataggio su DB
+         */
         storeResultsOperation();
 
+        /**
+         * Timestamp di fine elaborazione
+         */
         Date d2 = new Date();
         long diff = d2.getTime() - d1.getTime();
 
@@ -159,6 +162,16 @@ public class Analyser extends HttpServlet {
         System.out.print(diffSeconds + " seconds.");
     }
 
+    /**
+     * Metodo per l'elaborazione della singola cartella, quindi del singolo
+     * sentimento. Analizza i singoli file contenuti nella directory che saranno
+     * raccolte di tweet da analizzare. La versione pulita ed elaborata dei vari
+     * tweet viene poi salvata in un file avente lo stesso nome del sentimento
+     * analizzato.
+     *
+     * @param sentimentFolder Cartella contenente i vari file (tweet) associati
+     * ad un'emozione
+     */
     private void elaborateSentiment(File sentimentFolder) {
         File[] sentimentTweetList = sentimentFolder.listFiles();
         oldWords.put(sentimentFolder.getName(), new HashMap<>());
@@ -275,7 +288,7 @@ public class Analyser extends HttpServlet {
     }
 
     /**
-     * Procedura di carimento da file delle stopwords che verranno eliminate
+     * Procedura di caricamento da file delle stopwords che verranno eliminate
      * durante la fase di prepocessamento dei tweet.
      */
     private void loadStopwords() {
@@ -332,7 +345,7 @@ public class Analyser extends HttpServlet {
      * Scandisce l'intero testo passato come paramentro alla ricerca delle
      * diverse emoticon presenti nell'hashmap globale 'emoticons'. Ogni emoticon
      * trovata verrà cancellata dal testo finale ma il conteggio totale delle
-     * occorrenze per sentimento verrà salvato sempre nella relatica hashmap.
+     * occorrenze per sentimento verrà salvato sempre nella relativa hashmap.
      *
      * @param text Testo da analizzare
      * @param sentiment Sentimento associato al testo analizzato
@@ -364,15 +377,26 @@ public class Analyser extends HttpServlet {
      */
     private String processSlangWords(String text) {
         System.out.print("Slang ... ");
-        text = text.replace(System.lineSeparator(), " :-EOL-: ");
-        for (Map.Entry temp : slangs.entrySet()) {
-            String slangForm = (String) temp.getKey();
-            String extendedForm = (String) temp.getValue();
-            text = text.replace(slangForm, extendedForm);
+        StrBuilder elaboratedText = new StrBuilder();
+        try {
+            BufferedReader br = new BufferedReader(new StringReader(text));
+            String sCurrentLine;
+            while ((sCurrentLine = br.readLine()) != null) {
+                String[] splittedText = sCurrentLine.split(" ");
+                for (String token : splittedText) {
+                    if (slangs.containsKey(token)) {
+                        elaboratedText.append(" " + slangs.get(token));
+                    } else {
+                        elaboratedText.append(" " + token);
+                    }
+                }
+                elaboratedText.appendNewLine();
+            }
+        } catch (IOException ex) {
+            Logger.getLogger(Analyser.class.getName()).log(Level.SEVERE, null, ex);
         }
-        text = text.replace(" :-EOL-: ", System.lineSeparator());
         System.out.print("PROCESSED");
-        return text;
+        return elaboratedText.toString();
     }
 
     /**
@@ -557,78 +581,91 @@ public class Analyser extends HttpServlet {
         }
     }
 
-    // <editor-fold defaultstate="collapsed" desc="HttpServlet methods. Click on the + sign on the left to edit the code.">
     /**
-     * Handles the HTTP <code>GET</code> method.
+     * Ripulisce il testo passato come input da tutte quelle stringhe non
+     * riconosciute dalla libreria di Standford. In pratica elimina i blocchi di
+     * emoji attaccati che non riescono ad essere processati dalle procedure
+     * precedenti.
      *
-     * @param request servlet request
-     * @param response servlet response
-     * @throws ServletException if a servlet-specific error occurs
-     * @throws IOException if an I/O error occurs
+     * @param text Testo da ripulire
+     * @return Testo ripulito da blocchi non elaborabili
      */
-    @Override
-    protected void doGet(HttpServletRequest request, HttpServletResponse response)
-            throws ServletException, IOException {
-        processRequest(request, response);
+    private String processUnknownItem(String text) {
+        System.out.print("Unknown token ... ");
+        Pattern pattern = Pattern.compile("^[a-z0-9]{2,50}$");
+        Matcher matcher;
+        StrBuilder elaboratedText = new StrBuilder();
+        try {
+            BufferedReader br = new BufferedReader(new StringReader(text));
+            String sCurrentLine;
+            while ((sCurrentLine = br.readLine()) != null) {
+                String[] splittedText = sCurrentLine.split(" ");
+                for (String token : splittedText) {
+                    matcher = pattern.matcher(token);
+                    if (matcher.matches()) {
+                        elaboratedText.append(" " + token);
+                    }
+                }
+                elaboratedText.appendNewLine();
+            }
+        } catch (IOException ex) {
+            Logger.getLogger(Analyser.class.getName()).log(Level.SEVERE, null, ex);
+        }
+        System.out.print("REMOVED");
+        return elaboratedText.toString();
     }
 
     /**
-     * Handles the HTTP <code>POST</code> method.
+     * Procedura per l'elaborazione delle singole parole. Vengono conteggiate le
+     * parole già presenti nelle risorse lessicali in DB e salvate le nuove
+     * parole incontrate nello scorrere del testo. Ogni parola viene prima
+     * lemmizzata per essere riportata alla forma base salvata in DB e
+     * permettere il confronto.
      *
-     * @param request servlet request
-     * @param response servlet response
-     * @throws ServletException if a servlet-specific error occurs
-     * @throws IOException if an I/O error occurs
+     * @param text Testo in input da elaborare.
+     * @param sentiment
+     * @return
      */
-    @Override
-    protected void doPost(HttpServletRequest request, HttpServletResponse response)
-            throws ServletException, IOException {
-        processRequest(request, response);
-    }
-
-    /**
-     * Returns a short description of the servlet.
-     *
-     * @return a String containing servlet description
-     */
-    @Override
-    public String getServletInfo() {
-        return "Short description";
-    }// </editor-fold>
-
     private String processWord(String text, String sentiment) {
         System.out.println("Words ... ");
         StrBuilder elaboratedText = new StrBuilder();
         Properties props = new Properties();
         props.put("annotators", "tokenize, ssplit, pos, lemma");
         StanfordCoreNLP pipeline = new StanfordCoreNLP(props, false);
-
         Pattern pattern = Pattern.compile("^[a-z0-9]{2,50}$");
-
         try {
             Class.forName(myDriver);
             Connection conn = DriverManager.getConnection(myUrl, myUser, myPass);
             BufferedReader br = new BufferedReader(new StringReader(text));
             String sCurrentLine;
-
             while ((sCurrentLine = br.readLine()) != null) {
-                Annotation document = pipeline.process(sCurrentLine);
-                for (CoreMap sentence : document.get(CoreAnnotations.SentencesAnnotation.class)) {
-                    for (CoreLabel token : sentence.get(CoreAnnotations.TokensAnnotation.class)) {
-                        String tokenString = token.get(CoreAnnotations.TextAnnotation.class);
-                        Matcher matcher = pattern.matcher(tokenString);
+                //System.out.println(sCurrentLine);
+                try {
+                    Annotation document = pipeline.process(sCurrentLine);
+                    for (CoreMap sentence : document.get(CoreAnnotations.SentencesAnnotation.class)) {
+                        for (CoreLabel token : sentence.get(CoreAnnotations.TokensAnnotation.class)) {
+                            String tokenString = token.get(CoreAnnotations.TextAnnotation.class);
+                            Matcher matcher = pattern.matcher(tokenString);
 
-                        if (tokenString.length() > 2 && tokenString.length() <= 50 && !StringUtils.isNumeric(tokenString) && !tokenString.contains("'") && matcher.matches()) {
-                            String lemma = token.get(CoreAnnotations.LemmaAnnotation.class);
-                            if (isAlredyResLex(lemma, sentiment, conn)) {
-                                countOldWord(lemma, sentiment);
-                            } else {
-                                countNewWord(lemma, sentiment);
+                            if (tokenString.length() > 2 && tokenString.length() <= 50
+                                    && !StringUtils.isNumeric(tokenString) && !tokenString.contains("'")
+                                    && matcher.matches()) {
+                                String lemma = token.get(CoreAnnotations.LemmaAnnotation.class);
+                                if (isAlredyResLex(lemma, sentiment, conn)) {
+                                    countOldWord(lemma, sentiment);
+                                } else {
+                                    countNewWord(lemma, sentiment);
+                                }
+                                elaboratedText.append(" " + lemma);
                             }
-                            elaboratedText.append(" " + lemma);
                         }
+                        elaboratedText.appendNewLine();
                     }
-                    elaboratedText.appendNewLine();
+                } catch (edu.stanford.nlp.util.RuntimeInterruptedException ex) {
+                    System.out.println("### L'input ha generato un errore in stanford.nlp ###");
+                    System.out.println(sCurrentLine);
+                    System.out.println("### L'esecuzione verrà ripresa saltando la riga ###");
+                    continue;
                 }
             }
             conn.close();
@@ -639,10 +676,21 @@ public class Analyser extends HttpServlet {
         } catch (SQLException ex) {
             Logger.getLogger(Analyser.class.getName()).log(Level.SEVERE, null, ex);
         }
+        pipeline = null;
         System.out.print("PROCESSED");
         return elaboratedText.toString();
     }
 
+    /**
+     * Controlla se il lemma passato in input è presente come risorsa lessicale
+     * per un dato sentimento.
+     *
+     * @param lemma Parola da controllare
+     * @param sentiment Sentimento associato all'occorrenza trovata
+     * @param conn Connessione al DB sul quale fare la ricerca
+     * @return <code>true</code> se è già presente come risorsa lessicale,
+     * <code>false</code> altrimenti
+     */
     private boolean isAlredyResLex(String lemma, String sentiment, Connection conn) {
         boolean answer = true;
         try {
@@ -658,6 +706,14 @@ public class Analyser extends HttpServlet {
         return answer;
     }
 
+    /**
+     * Procedura di supporto per il conteggio delle parole già presenti come
+     * risorse lessicali in DB. Costruisce/aggiorna l'hashmap dove vengono
+     * salvati i risultati ottenuti
+     *
+     * @param lemma Lemma da salvare
+     * @param sentiment Sentimento associato
+     */
     private void countOldWord(String lemma, String sentiment) {
         if (oldWords.containsKey(sentiment)) {
             if (oldWords.get(sentiment).containsKey(lemma)) {
@@ -676,6 +732,14 @@ public class Analyser extends HttpServlet {
         }
     }
 
+    /**
+     * Procedura di supporto per il conteggio delle parole NON presenti come
+     * risorse lessicali in DB. Costruisce/aggiorna l'hashmap dove vengono
+     * salvati i risultati ottenuti
+     *
+     * @param lemma Lemma da salvare
+     * @param sentiment Sentimento associato
+     */
     private void countNewWord(String lemma, String sentiment) {
         if (newWords.containsKey(sentiment)) {
             if (newWords.get(sentiment).containsKey(lemma)) {
@@ -694,6 +758,14 @@ public class Analyser extends HttpServlet {
         }
     }
 
+    /**
+     * Procedura per il salvataggio dei risultati invocata a fine elaborazione
+     * di tutti i file contenenenti tweet. Crea un oggetto Connection verso il
+     * DB che verrà utilizzato e condiviso dalle sottoprocedure per i singoli
+     * salvataggi. I risultati che verranno salvati in DB riguardano le
+     * emoticons, gli emoji, gli hashtag, le occorrenze delle vecchie risorse
+     * lessicali e l'individuazione e conteggio delle nuove parole trovate.
+     */
     private void storeResultsOperation() {
         try {
             Class.forName(myDriver);
@@ -713,6 +785,14 @@ public class Analyser extends HttpServlet {
 
     }
 
+    /**
+     * Procedura di salvataggio dei risultati delle emoticons. La procedura
+     * inizia cancellando la (possibile) precedente tabella e ricreandone una
+     * nuova. Per ogni emoticon viene creato un record avente nei suoi campi il
+     * canteggio delle occorrenze riscontrate nei tweet, divise per sentimento.
+     *
+     * @param conn Connessione al DB
+     */
     private void storeEmoticonsIntoDB(Connection conn) {
         System.out.println("Saving EMOTICON ... ");
         try {
@@ -782,6 +862,14 @@ public class Analyser extends HttpServlet {
 
     }
 
+    /**
+     * Procedura di salvataggio dei risultati degli emoji. La procedura inizia
+     * cancellando la (possibile) precedente tabella e ricreandone una nuova.
+     * Per ogni emoji viene creato un record avente nei suoi campi il canteggio
+     * delle occorrenze riscontrate nei tweet, divise per sentimento.
+     *
+     * @param conn Connessione al DB
+     */
     private void storeEmojiIntoDB(Connection conn) {
         System.out.println("Saving EMOJI ...");
         try {
@@ -850,6 +938,14 @@ public class Analyser extends HttpServlet {
         System.out.println("COMPLETE!");
     }
 
+    /**
+     * Procedura di salvataggio dei risultati degli hashtag. La procedura inizia
+     * cancellando la (possibile) precedente tabella e ricreandone una nuova.
+     * Per ogni hashtag viene creato un record avente nei suoi campi il
+     * canteggio delle occorrenze riscontrate nei tweet, divise per sentimento.
+     *
+     * @param conn Connessione al DB
+     */
     private void storeHashtagsIntoDB(Connection conn) {
         System.out.println("Saving HASHTAG ...");
         try {
@@ -916,6 +1012,13 @@ public class Analyser extends HttpServlet {
         System.out.println("COMPLETE!");
     }
 
+    /**
+     * Procedura di salvataggio per le risorse lessicali già presenti in DB. Per
+     * ogni sentimento vengono create delle query di update per le parole
+     * ritrovate all'interno dei tweet.
+     *
+     * @param conn Connessione al DB
+     */
     private void storeOldWordsIntoDB(Connection conn) {
         System.out.println("Saving OLDWORD ... ");
         try {
@@ -941,6 +1044,14 @@ public class Analyser extends HttpServlet {
         System.out.println("COMPLETE!");
     }
 
+    /**
+     * Procedura di salvataggio delle nuove parole trovate nei tweet. Per ogni
+     * sentimento vengono create delle query di insert contenenti anche i dati
+     * relativi al conteggio delle nuove parole che amplieranno le risorse
+     * lessicali precedentemente caricate in DB.
+     *
+     * @param conn Connessione al DB
+     */
     private void storeNewWordsIntoDB(Connection conn) {
         System.out.println("Saving NEWWORD ... ");
         try {
@@ -948,7 +1059,6 @@ public class Analyser extends HttpServlet {
                 String table = myUser + "." + (String) sentiment.getKey();
                 String queryInsert = "INSERT INTO " + table.toUpperCase()
                         + " (WORD, COUNT_RES, PERC_RES, COUNT_TWEET) VALUES (?,?,?,?)";
-                //System.out.println("### SENTIMENTO - " + table + " ###");
                 PreparedStatement pstmt = conn.prepareStatement(queryInsert);
                 HashMap<String, Integer> sentimentWords = (HashMap<String, Integer>) sentiment.getValue();
                 for (Map.Entry word : sentimentWords.entrySet()) {
@@ -958,7 +1068,6 @@ public class Analyser extends HttpServlet {
                     pstmt.setInt(i++, 0);
                     pstmt.setFloat(i++, 0);
                     pstmt.setInt(i, (Integer) word.getValue());
-                    //System.out.println("--- " + (String) word.getKey() + " - " + (Integer) word.getValue());
                     pstmt.addBatch();
 
                 }
@@ -972,29 +1081,42 @@ public class Analyser extends HttpServlet {
         System.out.println("COMPLETE!");
     }
 
-    private String processUnknownItem(String text) {
-        System.out.print("Unknown token ... ");
-        Pattern pattern = Pattern.compile("^[a-z0-9]{2,50}$");
-        Matcher matcher;
-        StrBuilder elaboratedText = new StrBuilder();
-        try {
-            BufferedReader br = new BufferedReader(new StringReader(text));
-            String sCurrentLine;
-            while ((sCurrentLine = br.readLine()) != null) {
-                String[] splittedText = sCurrentLine.split(" ");
-                for (String token : splittedText) {
-                    matcher = pattern.matcher(token);
-                    if( matcher.matches() ){
-                        elaboratedText.append(" " + token);
-                    }
-                }
-                elaboratedText.appendNewLine();
-            }
-        } catch (IOException ex) {
-            Logger.getLogger(Analyser.class.getName()).log(Level.SEVERE, null, ex);
-        }
-        System.out.print("REMOVED");
-        return elaboratedText.toString();
+    // <editor-fold defaultstate="collapsed" desc="HttpServlet methods. Click on the + sign on the left to edit the code.">
+    /**
+     * Handles the HTTP <code>GET</code> method.
+     *
+     * @param request servlet request
+     * @param response servlet response
+     * @throws ServletException if a servlet-specific error occurs
+     * @throws IOException if an I/O error occurs
+     */
+    @Override
+    protected void doGet(HttpServletRequest request, HttpServletResponse response)
+            throws ServletException, IOException {
+        processRequest(request, response);
     }
 
+    /**
+     * Handles the HTTP <code>POST</code> method.
+     *
+     * @param request servlet request
+     * @param response servlet response
+     * @throws ServletException if a servlet-specific error occurs
+     * @throws IOException if an I/O error occurs
+     */
+    @Override
+    protected void doPost(HttpServletRequest request, HttpServletResponse response)
+            throws ServletException, IOException {
+        processRequest(request, response);
+    }
+
+    /**
+     * Returns a short description of the servlet.
+     *
+     * @return a String containing servlet description
+     */
+    @Override
+    public String getServletInfo() {
+        return "Short description";
+    }// </editor-fold>
 }

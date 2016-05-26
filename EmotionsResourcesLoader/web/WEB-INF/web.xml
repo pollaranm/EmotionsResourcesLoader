@@ -12,10 +12,6 @@
         <servlet-name>Analyser</servlet-name>
         <servlet-class>logic.Analyser</servlet-class>
     </servlet>
-    <servlet>
-        <servlet-name>Test</servlet-name>
-        <servlet-class>logic.Test</servlet-class>
-    </servlet>
     <servlet-mapping>
         <servlet-name>Loader</servlet-name>
         <url-pattern>/Loader</url-pattern>
@@ -27,10 +23,6 @@
     <servlet-mapping>
         <servlet-name>Analyser</servlet-name>
         <url-pattern>/Analyser</url-pattern>
-    </servlet-mapping>
-    <servlet-mapping>
-        <servlet-name>Test</servlet-name>
-        <url-pattern>/Test</url-pattern>
     </servlet-mapping>
     <session-config>
         <session-timeout>

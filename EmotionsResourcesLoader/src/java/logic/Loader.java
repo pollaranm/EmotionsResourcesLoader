@@ -26,18 +26,21 @@ import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
-/**
- *
- * @author TTm
- */
 public class Loader extends HttpServlet {
 
+    /**
+     * Directory contenente le cartelle con le risorse lessicali suddivise per
+     * sentimento
+     */
     File dir = new File("C:/Dropbox/lex_res_temp");
+
+    /**
+     * Lista delle cartelle 'sentimento' contenenti le risorse lessicali
+     */
     File[] sentimentsFoldersList = dir.listFiles();
 
     protected void processRequest(HttpServletRequest request, HttpServletResponse response)
             throws ServletException, IOException {
-
         // Per ogni cartella fa partire l'elaborazione di un 'sentimento'
         for (File sentimentFolder : sentimentsFoldersList) {
             System.out.println("------ FOLDER " + sentimentFolder.getName() + "------");
@@ -114,8 +117,16 @@ public class Loader extends HttpServlet {
         storeInDB(sentiment.getName(), numRes, hashSentiment);
     }
 
+    /**
+     * Procedura di salvataggio delle risorse lessicali. Alla fine
+     * dell'elaborazione dei diversi file contenuti in una cartella, prende i
+     * risultati ottenuti e li memorizza in DB.
+     *
+     * @param sentimentName Sentimento analizzato
+     * @param numRes Numero di file contenuti nella cartella 'sentimento'
+     * @param hash Hash contenente le risorse lessicali ed il loro conteggio
+     */
     private void storeInDB(String sentimentName, int numRes, HashMap<String, Integer> hash) {
-//        System.out.println("DEBUG: inizio connessione DB per " + sentimentName);
         try {
             String myDriver = "oracle.jdbc.driver.OracleDriver";
             String myUrl = "jdbc:oracle:thin:@localhost:1521:oralab";
@@ -140,7 +151,6 @@ public class Loader extends HttpServlet {
                 pstmt.setInt(4, 0);
                 pstmt.addBatch();
             }
-
             pstmt.executeBatch();
             conn.commit();
             pstmt.close();
@@ -148,7 +158,6 @@ public class Loader extends HttpServlet {
         } catch (Exception e) {
             e.printStackTrace();
         }
-//        System.out.println("DEBUG: fine connessione DB per " + sentimentName);
     }
 
     /**
@@ -184,6 +193,12 @@ public class Loader extends HttpServlet {
         return finalS;
     }
 
+    /**
+     * Metodo ad hoc per testare il numero di bigrammi riscontrati da una veloce
+     * analisi dei tweet.
+     *
+     * @param hash Hash contenente i bigrammi da conteggiare
+     */
     private void RAW_counter(HashMap<String, Integer> hash) {
         File dir = new File("C:/Dropbox/tweet_temp");
         File[] sentimentsFoldersList = dir.listFiles();
